@@ -25,7 +25,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const signOut = async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/login"; };
   const roleLabel = state ? ROLES.find((r) => r.role === state.me.role)?.label : undefined;
-  const mapped = state?.processes.filter((p) => p.steps.length) ?? [];
+  const mapped = state?.processes.filter((p) => p.hasDraft) ?? [];
   const link = (href: string, label: ReactNode, dot?: string) => (
     <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined}>
       {dot && <span className={`dot d-${dot}`} />}{label}
@@ -52,6 +52,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
         <nav className="nav" aria-label="Main">
           {link(path(""), "Overview")}
+          {link(path("/strategy"), "Strategy")}
           {link(path("/templates"), "Templates")}
           {mapped.map((p) => (
             <div key={p.id} style={{ display: "contents" }}>

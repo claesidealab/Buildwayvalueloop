@@ -16,7 +16,7 @@ export class NotFoundError extends Error {}
 export class ConflictError extends Error {}
 
 type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
-type Q = DB | Tx;
+export type Q = DB | Tx;
 
 const toStage = (s: "not_started" | "find" | "build" | "run"): Stage => (s === "not_started" ? "not-started" : s);
 const fromStage = (s: Stage): "not_started" | "find" | "build" | "run" => (s === "not-started" ? "not_started" : s);
@@ -31,7 +31,7 @@ const toStepDef = (s: StepRow): StepDefinition => ({
 });
 const activeSteps = (rows: StepRow[]) => rows.filter((s) => !s.archivedAt).sort((a, b) => a.posX - b.posX || a.position - b.position);
 
-async function workspaceBySlug(q: Q, slug: string) {
+export async function workspaceBySlug(q: Q, slug: string) {
   const [ws] = await q.select().from(workspaces).where(eq(workspaces.slug, slug));
   if (!ws) throw new NotFoundError(`Workspace ${slug} not found`);
   return ws;
@@ -109,7 +109,7 @@ export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<Wo
     out.push({
       id: p.slug, name: p.name, templateId: p.templateId, templateVersion: p.templateVersion, unit: p.unit,
       stage: toStage(p.stage), gate: p.gate, note: p.note, steps: stepDefs, design,
-      assumptions: draft?.assumptions ?? customerService.defaultAssumptions, baseline, actuals: actualPoints, edges,
+      assumptions: draft?.assumptions ?? customerService.defaultAssumptions, baseline, actuals: actualPoints, edges, hasDraft: !!draft,
     });
   }
   return { workspace: { id: ws.slug, name: ws.name, isExample: ws.isExample }, processes: out };

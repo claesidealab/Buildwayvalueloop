@@ -44,7 +44,7 @@ export default function Overview() {
         </div>
         <div className="routes">
           {state.processes.map((p) => {
-            const ready = p.steps.length > 0;
+            const ready = p.hasDraft;
             const body = (
               <>
                 <div><h3>{p.name}</h3><p className="meta">{p.templateId ? `Template v${p.templateVersion} · ${p.steps.filter((s) => s.phase !== "as-is").length} steps after redesign` : "Not mapped yet"}</p></div>

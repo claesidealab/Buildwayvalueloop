@@ -9,7 +9,7 @@ export function useProcess(id: string) {
   const store = useWorkspace();
   const process = store.getProcess(id);
   const value = useMemo(
-    () => (process && process.steps.length ? computeValueCase(process.steps, process.design, process.assumptions) : undefined),
+    () => (process && process.hasDraft ? computeValueCase(process.steps, process.design, process.assumptions) : undefined),
     [process],
   );
   return { ...store, process, value, loading: !store.state && !store.error };

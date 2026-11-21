@@ -21,6 +21,8 @@ export interface ProcessInstance {
   actuals: ActualPoint[];
   /** Arrows on the process map. */
   edges: ProcessEdge[];
+  /** True when the process has a design to edit (it can be mapped, even with no steps yet). */
+  hasDraft: boolean;
 }
 
 export interface WorkspaceState {

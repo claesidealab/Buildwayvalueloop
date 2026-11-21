@@ -35,6 +35,8 @@ export function describeActivity(action: string, s: Subject, names: { process: (
     case "step.edited": return `edited ${names.step(String(s.process), String(s.step))} in ${proc} (${Object.keys(s.changes as Subject).map((k) => ({ name: "name", description: "description", minutesPerCase: "time", caseShare: "share of cases" } as Record<string, string>)[k] ?? (k.startsWith("fit") ? "fit" : k)).join(", ")})`;
     case "edge.added": return `drew an arrow from ${names.step(String(s.process), String(s.from))} to ${names.step(String(s.process), String(s.to))} in ${proc}`;
     case "edge.removed": return `removed an arrow in ${proc}`;
+    case "strategy.decision": return `recorded a ${s.kind} decision: ${s.text}`;
+    case "strategy.process_created": return `created the process ${s.flow} from the strategy`;
     default: return action;
   }
 }

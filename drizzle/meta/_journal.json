@@ -29,6 +29,13 @@
       "when": 1795268974435,
       "tag": "0003_editable_process",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795282088488,
+      "tag": "0004_strategy",
+      "breakpoints": true
     }
   ]
 }

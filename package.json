@@ -13,6 +13,7 @@
     "test:pg": "vitest run --no-file-parallelism src/server"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.12.0",
     "@electric-sql/pglite": "^0.5.17",
     "@xyflow/react": "^12.12.1",
     "arctic": "^3.7.0",

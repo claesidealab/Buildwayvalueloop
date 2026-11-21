@@ -4,6 +4,7 @@ import { getDb, type DB } from "./db";
 import { ConflictError, getWorkspaceState, NotFoundError, seedExample } from "./repo";
 import { authorize, ForbiddenError, UnauthorizedError, type Access, type SessionUser } from "./access";
 import { requireUser } from "./session";
+import { DiscoveryDeclinedError, DiscoveryUnavailableError } from "./discovery";
 import { permissionsOf, type Permission } from "@/domain/permissions";
 import type { Role } from "@/domain/types";
 
@@ -42,6 +43,8 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
     if (e instanceof ForbiddenError) return NextResponse.json({ error: e.message }, { status: 403 });
     if (e instanceof NotFoundError) return NextResponse.json({ error: e.message }, { status: 404 });
     if (e instanceof ConflictError) return NextResponse.json({ error: e.message }, { status: 409 });
+    if (e instanceof DiscoveryUnavailableError) return NextResponse.json({ error: e.message }, { status: 503 });
+    if (e instanceof DiscoveryDeclinedError) return NextResponse.json({ error: e.message }, { status: 422 });
     if (e instanceof SyntaxError) return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
     console.error(e);
     return NextResponse.json({ error: "Something went wrong on the server" }, { status: 500 });

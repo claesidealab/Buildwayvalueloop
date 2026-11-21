@@ -64,6 +64,21 @@ step alert             = agent success < 80% or escalation > 15% in the latest m
 
 CSV: `month,metric,step,value`, comma or semicolon separated (decimal comma allowed with semicolons). Metrics: `hours_released`, `ai_cost_sek`, `cases`, `handled_without_human`, `cost_per_case`, `csat` (process level) and `success_rate`, `escalation_rate` (per step). Uploads are all or nothing: any bad row and nothing is stored; the response lists problems by line. Re-uploading a month replaces its values (unique per process, step, metric, month and source).
 
+Strategy scenarios (`src/domain/strategy.ts`, covered by `strategy.test.ts`):
+
+```
+per flow in a scenario: go-live half-year, months to full value (ramp), value per year at full run-rate
+ramp share at month m   = 0 before go-live, then linear to 1 over the ramp months
+value realised in year  = Σ flows Σ months (run-rate / 12 × ramp share at mid-month)
+run-rate at year end    = Σ flows run-rate × ramp share at year end
+total cost in year      = one-off cash + running cash + own staff FTE × own time rate
+net in year             = value realised − total cost; cumulative net adds the years
+value after the plan    = run-rate at the end of the last year − that year's running cost
+payback year            = first year cumulative net ≥ 0; if after the plan, projected with value after the plan
+flow priority (0–100)   = value 35/20/5 + evidence 25/15/5 + waiting 25/15/5 + volume 15/10/3
+suggested decision      = redesign if priority ≥ 70 and waiting and evidence aren't low; improve if ≥ 45; else leave; new flows: build
+```
+
 Agent fit (`src/domain/fit.ts`) scores 0–100 from four ratings (volume, rule-based, data ready, error risk) and suggests a level. High error risk caps the suggestion at L2.
 
 ## Sign-in, workspaces and roles
@@ -76,12 +91,12 @@ Agent fit (`src/domain/fit.ts`) scores 0–100 from four ratings (volume, rule-b
 - **Developer sign-in:** signs in as an existing example user; on by default only outside production.
 - **CSRF:** cookies are `SameSite=Lax`, and `src/middleware.ts` refuses non-GET API calls whose `Origin` is another site.
 
-| Role | Read | Edit designs and assumptions | Upload actuals | Approve baselines | Manage members | Reset example |
-|---|---|---|---|---|---|---|
-| Viewer | ✓ | | | | | |
-| Process owner | ✓ | ✓ | ✓ | | | |
-| Admin (customer) | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| Buildway advisor | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Role | Read | Edit designs and assumptions | Upload actuals | Approve baselines | Manage members | Edit strategy | Reset example |
+|---|---|---|---|---|---|---|---|
+| Viewer | ✓ | | | | | | |
+| Process owner | ✓ | ✓ | ✓ | | | | |
+| Admin (customer) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| Buildway advisor | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 Permissions live in `src/domain/permissions.ts`. Every API route calls `guard(workspace, permission)` in `src/server/http.ts`, which signs the user in from the cookie and checks the role. The UI hides or disables what the role can't do, but the server is what enforces it. A workspace always keeps at least one admin or advisor.
 
@@ -129,10 +144,22 @@ Workspace calls return the full workspace state (`WorkspaceState` in `src/lib/ap
 | POST, DELETE | `/api/workspaces/:ws/processes/:process/actuals` | POST `{ csv }` (max 1 MB) | actuals.import |
 | GET | `/api/workspaces/:ws/processes/:process/actuals/template` | – (CSV file) | workspace.read |
 | GET | `/api/workspaces/:ws/history` | – | workspace.read |
+| GET, PUT | `/api/workspaces/:ws/strategy` | PUT `{ plan, version }` (409 if someone saved since) | read / strategy.edit |
+| POST | `/api/workspaces/:ws/strategy/decisions` | `{ kind, attendees, text }` | strategy.edit |
+| POST | `/api/workspaces/:ws/strategy/flows/:flowId/process` | – (creates an empty process and links it) | strategy.edit + design.edit |
+| POST | `/api/workspaces/:ws/strategy/discover` | `{ text }` (Claude suggests flows; nothing saved) | strategy.edit |
 
 Errors: 400 invalid input, 401 not signed in, 403 role doesn't allow it, 404 not found or not a member, 409 conflict, 422 CSV with problems.
 
 The client store (`src/lib/store.tsx`) applies changes optimistically, sends slider changes after 300 ms of rest, and ignores responses that arrive after a newer change.
+
+## Strategy module
+
+- One plan per workspace in `strategy_plans`: flows, scenarios with gates, ambition targets and decisions, stored as a versioned JSON document (`src/server/strategy-repo.ts`, validated by `src/server/strategy-schema.ts`). Saves send the version they edited; a newer version on the server is a 409, so two people editing in the room never overwrite each other silently.
+- Decisions are append-only: they are added through their own endpoint, stamped with server time and the signed-in person, and ignored on plan saves.
+- Example workspaces start from `src/templates/strategy-example.ts`, a made-up company with four scenarios in SEK; other workspaces start empty.
+- AI discovery (`src/server/discovery.ts`) calls Claude (`claude-opus-5-5`, structured output, server-side fallback on refusal) with the material people paste. It needs `ANTHROPIC_API_KEY`; without it the endpoint answers 503 and the screen says how to turn it on. Suggestions are shown for review and saved only when someone adds them.
+- Bottom-up check: a scenario flow linked to a process shows that process's own value case beside the top-down estimate.
 
 ## Current gaps
 
@@ -140,3 +167,5 @@ The client store (`src/lib/store.tsx`) applies changes optimistically, sends sli
 - Invitations are not emailed: tell people to sign in with the invited address. Email delivery comes with an email provider.
 - Postgres row-level security as a second line of defence is not switched on yet; isolation relies on the repository's workspace filters, covered by tests.
 - No rate limiting on sign-in routes yet; add at the hosting layer.
+- AI discovery has been tested with a stand-in for Claude, not yet against the live API.
+- Gate status is set by hand in the room; checking gates automatically against uploaded actuals comes next.

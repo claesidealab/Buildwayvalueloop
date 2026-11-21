@@ -29,6 +29,8 @@ interface Store {
   /** Replace local state with a server response (e.g. after an upload). */
   replace: (s: WorkspaceState) => void;
   reset: () => void;
+  /** Reload the workspace from the server. */
+  refresh: () => Promise<void>;
   /** Edit a step's definition and/or autonomy. Updates the screen at once. */
   patchStep: (processId: string, stepId: string, patch: StepPatch) => void;
   /** Add a step; resolves with the new step's id once saved. */
@@ -89,6 +91,7 @@ export function WorkspaceProvider({ slug, children }: { slug: string; children: 
   const store = useMemo<Store>(() => ({
     slug,
     state,
+    refresh: load,
     can: (p) => !!state?.me.permissions.includes(p),
     path: (p) => `/w/${slug}${p}`,
     error,

@@ -31,6 +31,7 @@ Supabase is plain Postgres and works the same way:
    | `DATABASE_URL` | the Neon pooled connection string |
    | `AUTH_DEV_LOGIN` | `true` for review only (see below) |
    | `BUILDWAY_EMAIL_DOMAINS` | `buildway.se` |
+   | `ANTHROPIC_API_KEY` | optional: turns on AI-assisted flow discovery |
 
 5. Deploy. Every push to the repository then updates the site automatically.
 

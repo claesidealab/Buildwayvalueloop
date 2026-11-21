@@ -14,12 +14,15 @@ describe("permissions", () => {
     expect(can("process-owner", "actuals.import")).toBe(true);
     expect(can("process-owner", "baseline.approve")).toBe(false);
     expect(can("process-owner", "members.manage")).toBe(false);
+    expect(can("process-owner", "strategy.edit")).toBe(false);
   });
 
   it("lets customer admins approve and manage members, but not reset", () => {
     expect(can("customer-admin", "baseline.approve")).toBe(true);
     expect(can("customer-admin", "members.manage")).toBe(true);
     expect(can("customer-admin", "workspace.reset")).toBe(false);
+    expect(can("customer-admin", "strategy.edit")).toBe(true);
+    expect(can("viewer", "strategy.edit")).toBe(false);
   });
 
   it("denies everything without a role", () => {

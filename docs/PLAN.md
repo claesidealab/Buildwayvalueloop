@@ -82,6 +82,14 @@ Land with advisory, expand with licences, retain with managed services.
 - [x] Printable value case for steering groups (save as PDF from the browser)
 - [x] CI on GitHub Actions, including Postgres 16
 
+### Strategy module (company level)
+- [x] Discover: flow inventory scored on value, evidence, waiting and volume; decision per flow; AI-assisted discovery with Claude
+- [x] Scenarios: cost (cash and own staff time) and net value per year, payback, value after the plan; example company in SEK
+- [x] Roadmap: net run-rate per half-year with gates decided in the room
+- [x] Ambition: five AI-native measures per year, set together in the room, with decisions recorded
+- [ ] Gates checked automatically against uploaded actuals
+- [ ] Scenario comparison export for the board
+
 ### Phase 2: close the loop (3–6 months after MVP)
 - Simulation of the to-be (queues, escalation, confidence thresholds) replacing the simple range
 - Connectors to agent platforms for agent telemetry (OpenTelemetry GenAI conventions)

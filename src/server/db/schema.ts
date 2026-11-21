@@ -5,6 +5,7 @@
 import { sql } from "drizzle-orm";
 import { check, uniqueIndex, boolean, doublePrecision, integer, jsonb, pgEnum, pgTable, primaryKey, smallint, text, timestamp, unique, uuid, bigserial, date } from "drizzle-orm/pg-core";
 import type { Assumptions, StepDefinition } from "@/domain/types";
+import type { StrategyPlan } from "@/domain/strategy";
 
 export const memberRole = pgEnum("member_role", ["advisor", "customer_admin", "process_owner", "viewer"]);
 export const processStage = pgEnum("process_stage", ["not_started", "find", "build", "run"]);
@@ -177,4 +178,13 @@ export const auditLog = pgTable("audit_log", {
   action: text("action").notNull(),
   subject: jsonb("subject").notNull(),
   at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** One strategy plan per workspace: flows, scenarios, gates, ambition and decisions, as a versioned document. */
+export const strategyPlans = pgTable("strategy_plans", {
+  workspaceId: uuid("workspace_id").primaryKey().references(() => workspaces.id, { onDelete: "cascade" }),
+  data: jsonb("data").$type<StrategyPlan>().notNull(),
+  version: integer("version").notNull().default(1),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
 });
