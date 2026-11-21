@@ -282,6 +282,89 @@ export function computeScenario(plan: Pick<StrategyPlan, "startYear" | "years" |
   };
 }
 
+/* ---------- drivers and sensitivity ---------- */
+
+/**
+ * What-if drivers applied on top of a scenario, for exploring in the room:
+ *   value     = every flow's run-rate × valuePct / 100
+ *   timing    = every go-live moved delayHalves half-years later (negative = earlier, not before the plan)
+ *   ramp      = every ramp × rampPct / 100
+ *   costs     = every cash cost line × costPct / 100; own staff FTE × ownTimePct / 100
+ */
+export interface Drivers {
+  valuePct: number;
+  delayHalves: number;
+  rampPct: number;
+  costPct: number;
+  ownTimePct: number;
+}
+
+export const NEUTRAL_DRIVERS: Drivers = { valuePct: 100, delayHalves: 0, rampPct: 100, costPct: 100, ownTimePct: 100 };
+
+export function shiftHalf(half: HalfYear, by: number, minYear: number): HalfYear {
+  const [y, h] = half.split("-H").map(Number);
+  const idx = Math.max((minYear) * 2, y * 2 + (h - 1) + by);
+  return `${Math.floor(idx / 2)}-H${(idx % 2) + 1}` as HalfYear;
+}
+
+export function applyDrivers(plan: Pick<StrategyPlan, "startYear">, s: Scenario, d: Drivers): Scenario {
+  return {
+    ...s,
+    flows: s.flows.map((f) => ({
+      ...f,
+      runRate: (f.runRate * d.valuePct) / 100,
+      goLive: shiftHalf(f.goLive, d.delayHalves, plan.startYear),
+      rampMonths: Math.min(60, Math.round((f.rampMonths * d.rampPct) / 100)),
+    })),
+    costs: s.costs.map((c) => ({ ...c, perYear: c.perYear.map((v) => (v * (c.kind === "own-time" ? d.ownTimePct : d.costPct)) / 100) })),
+  };
+}
+
+export interface SensitivityRow {
+  driver: keyof Drivers;
+  label: string;
+  lowLabel: string;
+  highLabel: string;
+  /** Net over the plan with the driver at its low and high setting. */
+  low: number;
+  high: number;
+  /** Largest distance from the base result: the row's weight in a tornado chart. */
+  swing: number;
+}
+
+/** Each driver moved alone to a pessimistic and an optimistic setting, sorted by how much net over the plan moves. */
+export function sensitivity(plan: Pick<StrategyPlan, "startYear" | "years" | "ownTimeRate">, s: Scenario, metric: "netOverPlan" | "valueAfterPlan" = "netOverPlan"): { base: number; rows: SensitivityRow[] } {
+  const run = (d: Partial<Drivers>) => computeScenario(plan, applyDrivers(plan, s, { ...NEUTRAL_DRIVERS, ...d }))[metric];
+  const base = run({});
+  // [driver, label, pessimistic setting, its label, optimistic setting, its label]
+  const defs: Array<[keyof Drivers, string, number, string, number, string]> = [
+    ["valuePct", "Value per flow", 80, "−20%", 120, "+20%"],
+    ["delayHalves", "Go-live timing", 1, "6 months later", -1, "6 months earlier"],
+    ["rampPct", "Time to full value", 150, "50% longer", 50, "50% shorter"],
+    ["costPct", "Cash costs", 120, "+20%", 80, "−20%"],
+    ["ownTimePct", "Own staff time", 120, "+20%", 80, "−20%"],
+  ];
+  const rows: SensitivityRow[] = defs.map(([driver, label, lo, lowLabel, hi, highLabel]) => {
+    const low = run({ [driver]: lo });
+    const high = run({ [driver]: hi });
+    return { driver, label, lowLabel, highLabel, low, high, swing: Math.max(Math.abs(low - base), Math.abs(high - base)) };
+  });
+  return { base, rows: rows.sort((a, b) => b.swing - a.swing) };
+}
+
+/* ---------- value against ease ---------- */
+
+/**
+ * Where a flow sits in the value-against-ease matrix:
+ *   value = (value 35/20/5 + waiting 25/15/5 + volume 15/10/3) / 75 × 100   (size of the prize)
+ *   ease  = evidence high 85, medium 50, low 15                             (how proven AI is for the work)
+ */
+export function flowMatrix(s: FlowScores): { value: number; ease: number } {
+  const value = ((POINTS.value[s.value] + POINTS.waiting[s.waiting] + POINTS.volume[s.volume]) / 75) * 100;
+  const ease = { high: 85, medium: 50, low: 15 }[s.evidence];
+  return { value: Math.round(value), ease };
+}
+
 /* ---------- one time model ---------- */
 
 /** Months from the plan start to the first day of a month written "YYYY-MM-01" (or "YYYY-MM"). */

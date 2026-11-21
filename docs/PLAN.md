@@ -88,6 +88,8 @@ Land with advisory, expand with licences, retain with managed services.
 - [x] Roadmap: net run-rate per half-year with gates decided in the room
 - [x] Ambition: five AI-native measures per year, set together in the room, with decisions recorded
 - [x] Gates checked against uploaded actuals (suggested met or missed; the room decides)
+- [x] What-if drivers on a scenario (value, timing, ramp, costs) with a sensitivity chart; save as a new scenario
+- [x] Value-against-ease matrix for the flow inventory
 - [ ] Scenario comparison export for the board
 
 ### Phase 2: close the loop (3–6 months after MVP)

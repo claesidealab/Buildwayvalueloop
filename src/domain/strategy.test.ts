@@ -142,3 +142,47 @@ describe("caseInScenarioTerms", () => {
     expect(r.net).toBeCloseTo(7.7 * M, 6);
   });
 });
+
+import { applyDrivers, flowMatrix, NEUTRAL_DRIVERS, sensitivity, shiftHalf } from "./strategy";
+
+describe("drivers", () => {
+  const s = scenario({
+    flows: [{ flowId: "f", goLive: "2027-H2", rampMonths: 12, runRate: 10 * M }],
+    costs: [{ id: "c", label: "Build", kind: "one-off", perYear: [2 * M, 0, 0] }, { id: "o", label: "Team", kind: "own-time", perYear: [2, 2, 2] }],
+  });
+
+  it("changes nothing at neutral settings", () => {
+    expect(computeScenario(plan, applyDrivers(plan, s, NEUTRAL_DRIVERS))).toEqual(computeScenario(plan, s));
+  });
+
+  it("scales value, ramp and costs, and moves go-lives", () => {
+    const d = applyDrivers(plan, s, { valuePct: 50, delayHalves: 1, rampPct: 50, costPct: 200, ownTimePct: 50 });
+    expect(d.flows[0]).toMatchObject({ runRate: 5 * M, goLive: "2028-H1", rampMonths: 6 });
+    expect(d.costs[0].perYear[0]).toBe(4 * M);
+    expect(d.costs[1].perYear[0]).toBe(1);
+  });
+
+  it("never moves a go-live before the plan starts", () => {
+    expect(shiftHalf("2027-H1", -2, 2027)).toBe("2027-H1");
+    expect(shiftHalf("2028-H1", -1, 2027)).toBe("2027-H2");
+  });
+
+  it("ranks drivers by how much they move net over the plan", () => {
+    const r = sensitivity(plan, s);
+    expect(r.base).toBeCloseTo(computeScenario(plan, s).netOverPlan, 6);
+    expect(r.rows).toHaveLength(5);
+    for (let i = 1; i < r.rows.length; i++) expect(r.rows[i - 1].swing).toBeGreaterThanOrEqual(r.rows[i].swing);
+    const value = r.rows.find((x) => x.driver === "valuePct")!;
+    expect(value.low).toBeLessThan(r.base);
+    expect(value.high).toBeGreaterThan(r.base);
+    const delay = r.rows.find((x) => x.driver === "delayHalves")!;
+    expect(delay.low).toBeLessThan(r.base);
+  });
+});
+
+describe("flowMatrix", () => {
+  it("places the prize on one axis and the evidence on the other", () => {
+    expect(flowMatrix({ value: "high", evidence: "high", waiting: "high", volume: "high" })).toEqual({ value: 100, ease: 85 });
+    expect(flowMatrix({ value: "low", evidence: "low", waiting: "low", volume: "low" })).toEqual({ value: 17, ease: 15 });
+  });
+});

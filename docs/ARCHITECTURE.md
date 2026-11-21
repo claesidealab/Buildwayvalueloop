@@ -82,6 +82,11 @@ payback year            = first year cumulative net ≥ 0; if after the plan, pr
 flow priority (0–100)   = value 35/20/5 + evidence 25/15/5 + waiting 25/15/5 + volume 15/10/3
 suggested decision      = redesign if priority ≥ 70 and waiting and evidence aren't low; improve if ≥ 45; else leave; new flows: build
 plan for a month        = value per year / 12 × ramp share at mid-month   (plannedForMonth)
+what-if drivers         = run-rate × value %, go-live ± half-years (not before the plan), ramp × ramp %,
+                          cash costs × cost %, own staff FTE × own time %   (applyDrivers; not saved unless copied)
+sensitivity             = net over the plan with each driver alone at value ±20%, go-live ±6 months,
+                          ramp ±50%, costs ±20%; rows sorted by the larger distance from the base
+value against ease      = value (value + waiting + volume points) / 75 × 100; ease = evidence 85/50/15
 value case in scenario terms (like-for-like bottom-up check):
   comparable run-rate   = labour benefit − oversight
   running costs         = AI cost + fixed cost   (go in the scenario's running cost lines, not the flow's value)

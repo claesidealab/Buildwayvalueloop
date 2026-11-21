@@ -11,6 +11,7 @@ import { evaluateGate, GATE_METRICS } from "@/domain/gates";
 import { measureBasis } from "@/domain/progress";
 import { PageHead } from "@/components/ui";
 import { money, NumField, signedMoney, StrategyTabs, TextField } from "@/components/strategy-ui";
+import { WhatIf } from "@/components/WhatIf";
 
 const KIND_LABEL: Record<CostKind, string> = { "one-off": "One-off cash", running: "Running cash", "own-time": "Own staff time (FTE)" };
 const halfLabel = (h: HalfYear) => h.replace("-", " ");
@@ -103,6 +104,12 @@ export default function ScenarioPage({ params }: { params: Promise<{ scenarioId:
         <div className="tile"><span className="label">Net over the plan</span><span className={`v num ${result.netOverPlan < 0 ? "neg-num" : ""}`}>{signedMoney(result.netOverPlan, c)}</span><small>Payback {result.paybackYear ?? "not in sight"}; cash only {result.paybackYearCash ?? "not in sight"}</small></div>
         <div className="tile"><span className="label">Net value per year after</span><span className="v num">{money(result.valueAfterPlan, c)}</span><small>Run-rate less running costs, from {years.at(-1)!.year + 1}</small></div>
       </div>
+
+      <WhatIf plan={plan} scenario={scenario} editable={editable} onSaveCopy={(copy) => {
+        const id = newId("scenario");
+        update((p) => ({ ...p, scenarios: [...p.scenarios, { ...structuredClone(copy), id }] }));
+        router.push(path(`/strategy/scenarios/${id}`));
+      }} />
 
       <section className="panel">
         <div className="panel-h"><h2>Cost and value per year, M{c}</h2></div>

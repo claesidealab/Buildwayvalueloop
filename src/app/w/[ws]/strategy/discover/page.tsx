@@ -8,6 +8,7 @@ import { useStrategy, type SuggestedFlow } from "@/lib/strategy-store";
 import { flowPriority, suggestedDecision, type FlowDecision, type FlowScores, type StrategyFlow } from "@/domain/strategy";
 import { PageHead } from "@/components/ui";
 import { RatingSelect, StrategyTabs, TextField } from "@/components/strategy-ui";
+import { FlowMatrix } from "@/components/FlowMatrix";
 
 const DECISIONS: Array<{ d: FlowDecision; label: string }> = [
   { d: "redesign", label: "Redesign" },
@@ -100,6 +101,13 @@ export default function DiscoverPage() {
         </section>
       )}
 
+      {flows.length > 0 && (
+        <section className="panel">
+          <div className="panel-h"><h2>Value against ease</h2><span className="muted" style={{ fontSize: 13 }}>Start top right; prove big bets before scaling them</span></div>
+          <FlowMatrix flows={flows} />
+        </section>
+      )}
+
       <section className="panel">
         <div className="panel-h">
           <h2>Flow inventory</h2>
@@ -148,7 +156,11 @@ export default function DiscoverPage() {
                   {hasProcess ? <Link className="btn btn-sm" href={path(`/processes/${f.processId}/map`)}>Open process map</Link>
                     : (f.decision === "redesign" || f.decision === "build") && editable && can("design.edit")
                       ? <button className="btn btn-sm btn-pri" onClick={() => toProcess(f.id)}>Map this flow</button> : null}
-                  {editable && !hasProcess && <button className="linkbtn" onClick={() => update((p) => ({ ...p, flows: p.flows.filter((x) => x.id !== f.id), scenarios: p.scenarios.map((s) => ({ ...s, flows: s.flows.filter((sf) => sf.flowId !== f.id) })) }))}>Remove flow</button>}
+                  {editable && !hasProcess && <button className="linkbtn" onClick={() => {
+                    const inScenarios = plan.scenarios.filter((s) => s.flows.some((sf) => sf.flowId === f.id)).map((s) => s.name);
+                    if (inScenarios.length && !window.confirm(`${f.name} is part of ${inScenarios.join(", ")}. Removing it also takes it out of ${inScenarios.length === 1 ? "that scenario" : "those scenarios"}. Remove it?`)) return;
+                    update((p) => ({ ...p, flows: p.flows.filter((x) => x.id !== f.id), scenarios: p.scenarios.map((s) => ({ ...s, flows: s.flows.filter((sf) => sf.flowId !== f.id) })) }));
+                  }}>Remove flow</button>}
                 </div>
               </article>
             );
