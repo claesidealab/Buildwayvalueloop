@@ -18,7 +18,7 @@ const NAV: Array<{ href: string; label: string; dot?: "find" | "build" | "run"; 
 
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
-  const { state, reset } = useWorkspace();
+  const { state, error, saving, reset } = useWorkspace();
   return (
     <div className="app">
       <aside className="rail">
@@ -31,8 +31,8 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
         <div className="ws">
           <small>Workspace</small>
-          <b>{state.workspace.name}</b>
-          {state.workspace.isExample && <small>Example customer</small>}
+          <b>{state?.workspace.name ?? "Loading…"}</b>
+          {state?.workspace.isExample && <small>Example customer</small>}
         </div>
         <nav className="nav" aria-label="Main">
           {NAV.map((n) => (
@@ -47,11 +47,15 @@ export function Shell({ children }: { children: ReactNode }) {
         </nav>
         <div className="rail-foot">
           <span className="role"><span className="dot d-run" />Signed in as Buildway advisor</span>
-          <button className="linkbtn" onClick={reset}>Reset example data</button>
+          {state?.workspace.isExample && <button className="linkbtn" onClick={reset}>Reset example data</button>}
+          <span aria-live="polite">{saving ? "Saving…" : state ? "All changes saved" : ""}</span>
         </div>
       </aside>
       <main>
-        <div className="wrap view">{children}</div>
+        <div className="wrap view">
+          {error && <p className="banner" role="alert">{error}</p>}
+          {state ? children : !error && <p className="muted">Loading workspace…</p>}
+        </div>
       </main>
     </div>
   );

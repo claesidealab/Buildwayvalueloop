@@ -1,0 +1,220 @@
+/**
+ * Data access for workspaces and processes. Every function is scoped by workspace slug,
+ * and every query filters on workspace_id. Value cases are always computed here with the
+ * domain model, never taken from the client.
+ */
+import { and, asc, desc, eq, inArray, max } from "drizzle-orm";
+import type { DB } from "./db";
+import { auditLog, baselines, designSteps, designs, memberships, processes, steps, users, workspaces } from "./db/schema";
+import type { Assumptions, AutonomyLevel, Baseline, ProcessDesign, Stage, StepDefinition } from "@/domain/types";
+import { computeValueCase } from "@/domain/value-model";
+import type { AssumptionsPatch, ProcessInstance, StepPatch, WorkspaceState } from "@/lib/api-types";
+import { customerService } from "@/templates";
+
+export class NotFoundError extends Error {}
+export class ConflictError extends Error {}
+
+type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
+type Q = DB | Tx;
+
+const toStage = (s: "not_started" | "find" | "build" | "run"): Stage => (s === "not_started" ? "not-started" : s);
+const fromStage = (s: Stage): "not_started" | "find" | "build" | "run" => (s === "not-started" ? "not_started" : s);
+
+/* ---------- reads ---------- */
+
+async function workspaceBySlug(q: Q, slug: string) {
+  const [ws] = await q.select().from(workspaces).where(eq(workspaces.slug, slug));
+  if (!ws) throw new NotFoundError(`Workspace ${slug} not found`);
+  return ws;
+}
+
+async function processBySlug(q: Q, workspaceId: string, slug: string) {
+  const [p] = await q.select().from(processes).where(and(eq(processes.workspaceId, workspaceId), eq(processes.slug, slug)));
+  if (!p) throw new NotFoundError(`Process ${slug} not found`);
+  return p;
+}
+
+async function draftOf(q: Q, workspaceId: string, processId: string) {
+  const [d] = await q.select().from(designs).where(and(eq(designs.workspaceId, workspaceId), eq(designs.processId, processId), eq(designs.status, "draft")));
+  if (!d) throw new NotFoundError("Process has no draft design");
+  return d;
+}
+
+async function designLevels(q: Q, designId: string, stepRows: Array<{ id: string; key: string }>): Promise<ProcessDesign> {
+  const rows = await q.select().from(designSteps).where(eq(designSteps.designId, designId));
+  const keyOf = new Map(stepRows.map((s) => [s.id, s.key]));
+  const levels: Record<string, AutonomyLevel> = {};
+  const systemSteps: string[] = [];
+  for (const r of rows) {
+    const key = keyOf.get(r.stepId);
+    if (!key) continue;
+    levels[key] = r.autonomy as AutonomyLevel;
+    if (r.isSystem) systemSteps.push(key);
+  }
+  return { levels, systemSteps };
+}
+
+export async function getWorkspaceState(db: DB, wsSlug: string): Promise<WorkspaceState> {
+  const ws = await workspaceBySlug(db, wsSlug);
+  const procs = await db.select().from(processes).where(eq(processes.workspaceId, ws.id)).orderBy(asc(processes.position));
+  const allSteps = procs.length
+    ? await db.select().from(steps).where(and(eq(steps.workspaceId, ws.id), inArray(steps.processId, procs.map((p) => p.id)))).orderBy(asc(steps.position))
+    : [];
+
+  const out: ProcessInstance[] = [];
+  for (const p of procs) {
+    const stepRows = allSteps.filter((s) => s.processId === p.id);
+    const stepDefs: StepDefinition[] = stepRows.map((s) => ({
+      id: s.key, name: s.name, description: s.description, minutesPerCase: s.minutesPerCase,
+      fit: { volume: s.fitVolume, ruleBased: s.fitRuleBased, dataReady: s.fitDataReady, errorRisk: s.fitErrorRisk },
+    }));
+    const [draft] = await db.select().from(designs).where(and(eq(designs.processId, p.id), eq(designs.status, "draft")));
+    const design = draft ? await designLevels(db, draft.id, stepRows) : { levels: {}, systemSteps: [] };
+
+    let baseline: Baseline | null = null;
+    const [b] = await db
+      .select({ b: baselines, approver: users.name, d: designs })
+      .from(baselines)
+      .innerJoin(users, eq(users.id, baselines.approvedBy))
+      .innerJoin(designs, eq(designs.id, baselines.designId))
+      .where(and(eq(baselines.workspaceId, ws.id), eq(baselines.processId, p.id)))
+      .orderBy(desc(baselines.approvedAt))
+      .limit(1);
+    if (b) {
+      baseline = {
+        approvedAt: b.b.approvedAt.toISOString(), approvedBy: b.approver, net: b.b.netValueSek,
+        design: await designLevels(db, b.d.id, stepRows), assumptions: b.d.assumptions,
+      };
+    }
+
+    out.push({
+      id: p.slug, name: p.name, templateId: p.templateId, templateVersion: p.templateVersion, unit: p.unit,
+      stage: toStage(p.stage), gate: p.gate, note: p.note, steps: stepDefs, design,
+      assumptions: draft?.assumptions ?? customerService.defaultAssumptions, baseline,
+    });
+  }
+  return { workspace: { id: ws.slug, name: ws.name, isExample: ws.isExample }, processes: out };
+}
+
+/* ---------- writes ---------- */
+
+async function audit(q: Q, workspaceId: string, actorId: string | null, action: string, subject: unknown) {
+  await q.insert(auditLog).values({ workspaceId, actorId, action, subject });
+}
+
+export async function updateStep(db: DB, wsSlug: string, processSlug: string, stepKey: string, patch: StepPatch, actorId: string | null) {
+  await db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const [step] = await tx.select().from(steps).where(and(eq(steps.processId, p.id), eq(steps.key, stepKey)));
+    if (!step) throw new NotFoundError(`Step ${stepKey} not found`);
+    const draft = await draftOf(tx, ws.id, p.id);
+    const [cur] = await tx.select().from(designSteps).where(and(eq(designSteps.designId, draft.id), eq(designSteps.stepId, step.id)));
+    const autonomy = patch.autonomy ?? ((cur?.autonomy ?? 0) as AutonomyLevel);
+    // Only L4 steps can run as rule-based systems.
+    const isSystem = autonomy >= 4 ? (patch.isSystem ?? cur?.isSystem ?? false) : false;
+    await tx.insert(designSteps).values({ designId: draft.id, stepId: step.id, autonomy, isSystem })
+      .onConflictDoUpdate({ target: [designSteps.designId, designSteps.stepId], set: { autonomy, isSystem } });
+    await tx.update(designs).set({ updatedAt: new Date() }).where(eq(designs.id, draft.id));
+    await audit(tx, ws.id, actorId, "design.step_changed", { process: processSlug, step: stepKey, from: cur ? { autonomy: cur.autonomy, isSystem: cur.isSystem } : null, to: { autonomy, isSystem } });
+  });
+}
+
+export async function updateAssumptions(db: DB, wsSlug: string, processSlug: string, patch: AssumptionsPatch, actorId: string | null) {
+  await db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const draft = await draftOf(tx, ws.id, p.id);
+    const next: Assumptions = { ...draft.assumptions, ...patch };
+    await tx.update(designs).set({ assumptions: next, updatedAt: new Date() }).where(eq(designs.id, draft.id));
+    await audit(tx, ws.id, actorId, "design.assumptions_changed", { process: processSlug, patch });
+  });
+}
+
+/** Snapshot the draft as an approved design and record a baseline with a server-computed value case. */
+export async function approveBaseline(db: DB, wsSlug: string, processSlug: string, actorId: string) {
+  return db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const draft = await draftOf(tx, ws.id, p.id);
+    const stepRows = await tx.select().from(steps).where(eq(steps.processId, p.id)).orderBy(asc(steps.position));
+    if (!stepRows.length) throw new ConflictError("Process has no steps to value");
+    const design = await designLevels(tx, draft.id, stepRows);
+    const defs: StepDefinition[] = stepRows.map((s) => ({
+      id: s.key, name: s.name, description: s.description, minutesPerCase: s.minutesPerCase,
+      fit: { volume: s.fitVolume, ruleBased: s.fitRuleBased, dataReady: s.fitDataReady, errorRisk: s.fitErrorRisk },
+    }));
+    const value = computeValueCase(defs, design, draft.assumptions);
+
+    const [{ v }] = await tx.select({ v: max(designs.version) }).from(designs).where(eq(designs.processId, p.id));
+    const [approved] = await tx.insert(designs).values({
+      workspaceId: ws.id, processId: p.id, version: (v ?? 0) + 1, status: "approved", assumptions: draft.assumptions, createdBy: actorId,
+    }).returning();
+    const draftSteps = await tx.select().from(designSteps).where(eq(designSteps.designId, draft.id));
+    if (draftSteps.length) await tx.insert(designSteps).values(draftSteps.map((r) => ({ ...r, designId: approved.id })));
+    const [baseline] = await tx.insert(baselines).values({
+      workspaceId: ws.id, processId: p.id, designId: approved.id, netValueSek: value.net, lowSek: value.low, highSek: value.high, approvedBy: actorId,
+    }).returning();
+    await audit(tx, ws.id, actorId, "baseline.approved", { process: processSlug, baselineId: baseline.id, net: value.net, designVersion: approved.version });
+    return baseline;
+  });
+}
+
+/* ---------- example workspace ---------- */
+
+export const EXAMPLE_WORKSPACE = "acme-support";
+export const EXAMPLE_ADVISOR_EMAIL = "advisor@buildway.example";
+
+/** The acting user until sign-in exists (phase 1, step 2). */
+export async function ensureAdvisor(db: DB): Promise<string> {
+  const [u] = await db.insert(users).values({ email: EXAMPLE_ADVISOR_EMAIL, name: "Buildway advisor", isBuildway: true })
+    .onConflictDoUpdate({ target: users.email, set: { name: "Buildway advisor" } }).returning();
+  return u.id;
+}
+
+/** Create the example workspace if it doesn't exist. Returns true if it was created. */
+export async function seedExample(db: DB): Promise<boolean> {
+  const advisorId = await ensureAdvisor(db);
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(workspaces).where(eq(workspaces.slug, EXAMPLE_WORKSPACE));
+    if (existing) return false;
+    const [ws] = await tx.insert(workspaces).values({ slug: EXAMPLE_WORKSPACE, name: "Acme Support", isExample: true }).returning();
+    await tx.insert(memberships).values({ workspaceId: ws.id, userId: advisorId, role: "advisor" });
+
+    const tpl = customerService;
+    const [cs] = await tx.insert(processes).values({
+      workspaceId: ws.id, slug: "customer-service", name: tpl.name, templateId: tpl.id, templateVersion: tpl.version, unit: tpl.unit,
+      stage: "run", gate: "green", note: "Live, month 9 of 12", position: 0,
+    }).returning();
+    const stepRows = await tx.insert(steps).values(tpl.steps.map((s, i) => ({
+      workspaceId: ws.id, processId: cs.id, key: s.id, name: s.name, description: s.description, position: i, minutesPerCase: s.minutesPerCase,
+      fitVolume: s.fit.volume, fitRuleBased: s.fit.ruleBased, fitDataReady: s.fit.dataReady, fitErrorRisk: s.fit.errorRisk,
+    }))).returning();
+    const [draft] = await tx.insert(designs).values({ workspaceId: ws.id, processId: cs.id, version: 1, status: "draft", assumptions: tpl.defaultAssumptions, createdBy: advisorId }).returning();
+    await tx.insert(designSteps).values(stepRows.map((s) => ({
+      designId: draft.id, stepId: s.id, autonomy: tpl.defaultDesign.levels[s.key] ?? 0, isSystem: tpl.defaultDesign.systemSteps.includes(s.key),
+    })));
+
+    const others: Array<[string, string, Stage, "red" | "amber" | "green", string]> = [
+      ["it-service-desk", "IT service desk", "build", "amber", "Gate: data readiness"],
+      ["invoice-handling", "Invoice handling", "find", "amber", "Next: redesign workshop"],
+      ["hr-onboarding", "HR onboarding", "not-started", "red", "Owner not assigned"],
+    ];
+    await tx.insert(processes).values(others.map(([slug, name, stage, gate, note], i) => ({
+      workspaceId: ws.id, slug, name, stage: fromStage(stage), gate, note, position: i + 1,
+    })));
+    return true;
+  });
+}
+
+/** Delete and recreate the example workspace. Refuses for real customer workspaces. */
+export async function resetExample(db: DB, wsSlug: string) {
+  const ws = await workspaceBySlug(db, wsSlug);
+  if (!ws.isExample) throw new ConflictError("Only example workspaces can be reset");
+  await db.transaction(async (tx) => {
+    // Baselines reference designs without cascade; remove them first.
+    await tx.delete(baselines).where(eq(baselines.workspaceId, ws.id));
+    await tx.delete(workspaces).where(eq(workspaces.id, ws.id));
+  });
+  await seedExample(db);
+}

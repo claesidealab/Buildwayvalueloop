@@ -19,7 +19,8 @@ const SLIDERS: Array<{ key: keyof Assumptions; label: string; min: number; max: 
 
 export default function ValuePage({ params }: { params: Promise<{ processId: string }> }) {
   const { processId } = use(params);
-  const { process, value, setAssumption, approveBaseline } = useProcess(processId);
+  const { process, value, loading, setAssumption, approveBaseline } = useProcess(processId);
+  if (loading) return null;
   if (!process || !value) return <NotFound />;
 
   const lo = Math.min(value.low, 0), hi = Math.max(value.high, 1), span = hi - lo || 1;
@@ -34,7 +35,7 @@ export default function ValuePage({ params }: { params: Promise<{ processId: str
         right={
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             {b && <span className="approved">● Baseline approved {new Date(b.approvedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} · {formatMSEK(b.net)} MSEK</span>}
-            <button className="btn btn-pri" onClick={() => approveBaseline(process.id, value.net)}>{b ? "Re-approve baseline" : "Approve as baseline"}</button>
+            <button className="btn btn-pri" onClick={() => approveBaseline(process.id)}>{b ? "Re-approve baseline" : "Approve as baseline"}</button>
           </div>
         } />
       <div className="vgrid">

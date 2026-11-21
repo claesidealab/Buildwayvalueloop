@@ -18,7 +18,8 @@ const EXAMPLE_AGENT_STATS: Record<string, [number, number]> = {
 
 export default function MonitorPage({ params }: { params: Promise<{ processId: string }> }) {
   const { processId } = use(params);
-  const { process, value } = useProcess(processId);
+  const { process, value, loading } = useProcess(processId);
+  if (loading) return null;
   if (!process || !value) return <NotFound />;
 
   const plan = process.baseline?.net ?? value.net;

@@ -14,10 +14,11 @@ const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 
 export default function FitPage({ params }: { params: Promise<{ processId: string }> }) {
   const { processId } = use(params);
-  const { process, template, setLevel } = useProcess(processId);
-  if (!process || !template) return <NotFound />;
+  const { process, value, loading, setLevel } = useProcess(processId);
+  if (loading) return null;
+  if (!process || !value) return <NotFound />;
 
-  const applyAll = () => template.steps.forEach((s) => setLevel(process.id, s.id, suggestedLevel(s.fit)));
+  const applyAll = () => process.steps.forEach((s) => setLevel(process.id, s.id, suggestedLevel(s.fit)));
 
   return (
     <>
@@ -29,7 +30,7 @@ export default function FitPage({ params }: { params: Promise<{ processId: strin
           <table className="tbl">
             <thead><tr><th>Step</th>{FACTORS.map(([, l]) => <th key={l}>{l}</th>)}<th style={{ width: 180 }}>Fit score</th><th>Suggested</th><th>Current</th><th /></tr></thead>
             <tbody>
-              {template.steps.map((s) => {
+              {process.steps.map((s) => {
                 const score = fitScore(s.fit), sug = suggestedLevel(s.fit), cur = process.design.levels[s.id] ?? 0;
                 return (
                   <tr key={s.id}>

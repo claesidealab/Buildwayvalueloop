@@ -6,7 +6,8 @@
 |---|---|---|
 | App | Next.js (App Router), React, TypeScript | One codebase for UI and API routes; easy to host in the EU |
 | Domain | Plain TypeScript in `src/domain`, no framework imports | Testable, reusable on server and client |
-| Database | Postgres (phase 1) | Relational model fits processes, steps and baselines; row-level security for tenants |
+| Database | Postgres via Drizzle ORM; embedded PGlite when `DATABASE_URL` is unset | Relational model fits processes, steps and baselines; no database server needed in development or tests |
+| Validation | zod at the API boundary | Reject bad input before it reaches the database |
 | Auth | To decide: Auth.js or a managed provider with SSO (Entra ID, Google) | Enterprise customers need SSO |
 | AI | Claude via the Anthropic API | Draft maps from documents, suggest placements, explain value |
 | Simulation | Python service (phase 2) | Discrete-event or Monte Carlo simulation of the to-be |
@@ -49,7 +50,7 @@ Agent fit (`src/domain/fit.ts`) scores 0–100 from four ratings (volume, rule-b
 
 ## Multi-tenancy and roles
 
-- Every row carries `workspace_id`; Postgres row-level security enforces it.
+- Every tenant-owned row carries `workspace_id`, and every repository query filters on it. Postgres row-level security is added with sign-in.
 - Roles: `advisor` (Buildway, may belong to many workspaces), `customer_admin`, `process_owner`, `viewer`.
 - Advisors approve baselines in phase 1; customer admins can approve in the self-serve stage.
 
@@ -59,7 +60,30 @@ Agent fit (`src/domain/fit.ts`) scores 0–100 from four ratings (volume, rule-b
 2. One ticketing or CRM system (Zendesk or ServiceNow, depending on design partners)
 3. Agent platforms (Copilot Studio, Agentforce, Claude- or OpenAI-based agents) through OpenTelemetry and connectors
 
-## Current state of the code
+## Persistence
 
-- Workspace data lives in the browser (`src/lib/store.tsx`, localStorage) so screens can be tested with design partners. The store's shape mirrors `db/schema.sql`, so swapping in an API is a contained change.
-- Monitoring uses example actuals marked in the UI.
+- Schema: `src/server/db/schema.ts` is the source of truth. After changing it, run `npx drizzle-kit generate --name <change>` and commit the new file in `drizzle/`. Migrations run automatically on first connection.
+- Connection: `src/server/db/index.ts`. `DATABASE_URL` set: node-postgres. Unset: PGlite in `PGLITE_DIR` (default `.data/pglite`). Tests use an in-memory PGlite per test.
+- Data access: `src/server/repo.ts`. Every function takes a workspace slug and filters on `workspace_id`. Domain errors (`NotFoundError`, `ConflictError`) map to 404 and 409 in `src/server/http.ts`.
+- Designs: each process has one mutable **draft** design (enforced by a partial unique index). Approving a baseline copies the draft into a new immutable **approved** design and records the baseline with the value computed on the server. The client never sends the value.
+- Every change writes an `audit_log` row.
+- The example workspace (`acme-support`) is seeded on first request and can be reset; real workspaces cannot.
+
+## API
+
+All responses to successful calls return the full workspace state (`WorkspaceState` in `src/lib/api-types.ts`).
+
+| Method | Path | Body |
+|---|---|---|
+| GET | `/api/workspaces/:ws` | – |
+| PATCH | `/api/workspaces/:ws/processes/:process/steps/:step` | `{ autonomy?: 0–4, isSystem?: boolean }` |
+| PATCH | `/api/workspaces/:ws/processes/:process/assumptions` | any subset of `Assumptions` |
+| POST | `/api/workspaces/:ws/processes/:process/baselines` | – |
+| POST | `/api/workspaces/:ws/reset` | – (example workspaces only) |
+
+The client store (`src/lib/store.tsx`) applies changes optimistically, sends slider changes after 300 ms of rest, and ignores responses that arrive after a newer change.
+
+## Current gaps
+
+- No sign-in yet: every request acts as the seeded Buildway advisor, and the app shows one workspace (`NEXT_PUBLIC_WORKSPACE`, default `acme-support`). Phase 1, step 2 adds sign-in, memberships checks on every route and row-level security.
+- Monitoring uses example actuals marked in the UI; the `actuals` table is ready for CSV upload.

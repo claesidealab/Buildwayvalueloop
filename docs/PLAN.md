@@ -72,11 +72,11 @@ Land with advisory, expand with licences, retain with managed services.
 - [x] Domain model and value model with tests
 - [x] Customer service template v1
 - [x] Screens: overview, templates, redesign canvas, agent fit, value case, monitor
-- [ ] Postgres persistence and API (schema drafted in `db/schema.sql`)
+- [x] Postgres persistence and API, with audit log and server-computed baselines
 - [ ] Sign-in, workspaces and roles (advisor, customer admin, process owner, viewer)
 - [ ] Draft an as-is map from SOPs and interview notes with Claude
 - [ ] Actuals via CSV upload, then one connector (Zendesk or ServiceNow)
-- [ ] Baseline history and an audit log of design changes
+- [ ] Baseline history view (data is stored; audit log is written)
 - [ ] Export the value case (PDF) for customer steering groups
 
 ### Phase 2: close the loop (3–6 months after MVP)

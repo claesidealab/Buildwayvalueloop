@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useWorkspace } from "@/lib/store";
-import { getTemplate } from "@/templates";
 import { computeValueCase, formatMSEK } from "@/domain/value-model";
 import { PageHead, RouteTrack, TrafficLight } from "@/components/ui";
 
@@ -12,15 +11,11 @@ const EXAMPLE_MONTH = 9;
 
 export default function Overview() {
   const { state } = useWorkspace();
-  const live = state.processes.filter((p) => p.stage === "run" && p.templateId);
-  const plan = live.reduce((t, p) => {
-    const tpl = getTemplate(p.templateId!);
-    return t + (p.baseline?.net ?? (tpl ? computeValueCase(tpl.steps, p.design, p.assumptions).net : 0));
-  }, 0);
-  const agents = live.reduce((t, p) => {
-    const tpl = getTemplate(p.templateId!);
-    return t + (tpl ? computeValueCase(tpl.steps, p.design, p.assumptions).steps.filter((s) => s.lane === "agent").length : 0);
-  }, 0);
+  if (!state) return null;
+  const valueOf = (p: (typeof state.processes)[number]) => computeValueCase(p.steps, p.design, p.assumptions);
+  const live = state.processes.filter((p) => p.stage === "run" && p.steps.length);
+  const plan = live.reduce((t, p) => t + (p.baseline?.net ?? valueOf(p).net), 0);
+  const agents = live.reduce((t, p) => t + valueOf(p).steps.filter((s) => s.lane === "agent").length, 0);
 
   return (
     <>
@@ -43,16 +38,16 @@ export default function Overview() {
         </div>
         <div className="routes">
           {state.processes.map((p) => {
-            const tpl = p.templateId ? getTemplate(p.templateId) : undefined;
+            const ready = p.steps.length > 0;
             const body = (
               <>
-                <div><h3>{p.name}</h3><p className="meta">{tpl ? `Template ${tpl.name} v${tpl.version} · ${tpl.steps.length} steps` : "No template yet"}</p></div>
+                <div><h3>{p.name}</h3><p className="meta">{p.templateId ? `Template v${p.templateVersion} · ${p.steps.length} steps` : "Not mapped yet"}</p></div>
                 <RouteTrack stage={p.stage} />
                 <TrafficLight gate={p.gate} />
-                <div className="rv"><b className="num">{tpl ? `${formatMSEK(p.baseline?.net ?? computeValueCase(tpl.steps, p.design, p.assumptions).net)} MSEK planned / yr` : p.stage === "not-started" ? "In the backlog" : "In progress"}</b><p className="meta">{p.note}</p></div>
+                <div className="rv"><b className="num">{ready ? `${formatMSEK(p.baseline?.net ?? valueOf(p).net)} MSEK ${p.baseline ? "approved" : "planned"} / yr` : p.stage === "not-started" ? "In the backlog" : "In progress"}</b><p className="meta">{p.note}</p></div>
               </>
             );
-            return tpl ? (
+            return ready ? (
               <Link key={p.id} className="route live" href={`/processes/${p.id}/map`}>{body}</Link>
             ) : (
               <div key={p.id} className="route">{body}</div>

@@ -18,20 +18,23 @@ Phase 1 groundwork. What works today:
 |---|---|
 | Domain model and value model | Done, with unit tests (`src/domain`) |
 | Customer service template v1 | Done (`src/templates`) |
-| Overview, templates, redesign canvas, agent fit, value case, monitor | Working screens, data kept in the browser |
-| Monitoring actuals | Example data; CSV and first connector are next |
-| Database, auth, workspaces | Designed (`db/schema.sql`), not wired up |
+| Overview, templates, redesign canvas, agent fit, value case, monitor | Working screens |
+| Database and API | Done: Postgres via Drizzle, migrations, REST API, audit log, tests |
+| Sign-in, workspaces and roles | Next (schema ready, every request acts as the example advisor) |
+| Monitoring actuals | Example data; CSV upload and first connector are planned |
 
 The original clickable prototype is kept in [docs/prototype/buildway-loop.html](docs/prototype/buildway-loop.html).
 
 ## Run it
 
-Requires Node 20 or later.
+Requires Node 20 or later. No database server is needed for development: without `DATABASE_URL` the app uses an embedded Postgres (PGlite) stored in `.data/pglite`, creates the tables and loads the example workspace on first request. Delete `.data/` to start over.
+
+To use a real Postgres, copy `.env.example` to `.env.local` and set `DATABASE_URL`.
 
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # domain and value-model tests
+npm test           # domain, value-model and database tests
 npm run typecheck
 npm run build
 ```
@@ -42,10 +45,11 @@ npm run build
 src/
   domain/      types, autonomy levels, agent-fit scoring, value model (+ tests)
   templates/   process templates (customer service v1)
-  lib/         workspace store (browser storage for now) and hooks
+  server/      database schema and connection, repository (data access), HTTP helpers
+  lib/         API types, client workspace store and hooks
   components/  app shell and shared UI (route track, traffic light, badges)
-  app/         Next.js App Router pages
-db/            Postgres schema draft
+  app/         Next.js pages and API routes (app/api)
+drizzle/       generated SQL migrations
 docs/          plan, architecture, prototype
 ```
 

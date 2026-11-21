@@ -2,17 +2,15 @@
 
 import { useMemo } from "react";
 import { useWorkspace } from "./store";
-import { getTemplate } from "@/templates";
 import { computeValueCase } from "@/domain/value-model";
 
-/** A process with its template and live value case. */
+/** A process with its live value case. `value` is undefined for processes without steps yet. */
 export function useProcess(id: string) {
   const store = useWorkspace();
   const process = store.getProcess(id);
-  const template = process?.templateId ? getTemplate(process.templateId) : undefined;
   const value = useMemo(
-    () => (process && template ? computeValueCase(template.steps, process.design, process.assumptions) : undefined),
-    [process, template],
+    () => (process && process.steps.length ? computeValueCase(process.steps, process.design, process.assumptions) : undefined),
+    [process],
   );
-  return { ...store, process, template, value };
+  return { ...store, process, value, loading: !store.state && !store.error };
 }

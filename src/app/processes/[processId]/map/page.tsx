@@ -19,14 +19,15 @@ const LANES: Array<{ key: Lane; label: string; dot: string }> = [
 
 export default function MapPage({ params }: { params: Promise<{ processId: string }> }) {
   const { processId } = use(params);
-  const { process, template, value, setLevel, setSystemStep } = useProcess(processId);
+  const { process, value, loading, setLevel, setSystemStep } = useProcess(processId);
   const initial = useSearchParams().get("step");
   const [mode, setMode] = useState<"asis" | "tobe">("tobe");
   const [sel, setSel] = useState<string>(initial ?? "resolve");
-  if (!process || !template || !value) return <NotFound />;
+  if (loading) return null;
+  if (!process || !value) return <NotFound />;
 
   const tobe = mode === "tobe";
-  const step = template.steps.find((s) => s.id === sel) ?? template.steps[0];
+  const step = process.steps.find((s) => s.id === sel) ?? process.steps[0];
   const sv = value.steps.find((s) => s.step.id === step.id)!;
   const perYear = process.assumptions.casesPerMonth * 12;
 
@@ -45,11 +46,11 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
           <div className="scroller">
             <div className="lanes">
               <div className="hd" />
-              {template.steps.map((s) => <div key={s.id} className={`hd ${s.id === step.id ? "sel" : ""}`}>{s.name}</div>)}
+              {process.steps.map((s) => <div key={s.id} className={`hd ${s.id === step.id ? "sel" : ""}`}>{s.name}</div>)}
               {LANES.map((ln, i) => (
                 <div key={ln.key} style={{ display: "contents" }}>
                   <div className={`lk ${i % 2 ? "alt" : ""}`}><i className={`dot ${ln.dot}`} />{ln.label}</div>
-                  {template.steps.map((s) => {
+                  {process.steps.map((s) => {
                     const level = tobe ? (process.design.levels[s.id] ?? 0) : 0;
                     const lane = tobe ? laneOf(s.id, level, process.design) : "human";
                     return (
@@ -68,7 +69,7 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
           </div>
           <div className="summary">
             <div><small>Net value / yr</small><b className="num">{tobe ? `${formatMSEK(value.net)} MSEK` : "—"}</b></div>
-            <div><small>Steps done by people</small><b className="num">{tobe ? value.stepsDoneByPeople : template.steps.length} of {template.steps.length}</b></div>
+            <div><small>Steps done by people</small><b className="num">{tobe ? value.stepsDoneByPeople : process.steps.length} of {process.steps.length}</b></div>
             <div><small>Hours released / yr</small><b className="num">{tobe ? formatInt(value.hoursReleased) : 0}</b></div>
             <div className="go"><Link className="btn" href={`/processes/${process.id}/value`}>Open value case</Link></div>
           </div>
@@ -97,7 +98,7 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
               </label>
               <dl className="kv">
                 <dt>Done by</dt><dd>{sv.lane === "agent" ? "AI agent" : sv.lane === "system" ? "System" : sv.level ? "Human with AI help" : "Human"}</dd>
-                <dt>Handling time today</dt><dd className="num">{step.minutesPerCase.toFixed(1)} min / {template.unit}</dd>
+                <dt>Handling time today</dt><dd className="num">{step.minutesPerCase.toFixed(1)} min / {process.unit}</dd>
                 <dt>Share automated</dt><dd className="num">{Math.round(sv.automatedShare * 100)}%</dd>
                 <dt>Hours released / yr</dt><dd className="num">{formatInt(sv.hoursReleased)}</dd>
                 <dt>Agent fit score</dt><dd className="num">{fitScore(step.fit)} · suggests L{suggestedLevel(step.fit)}</dd>
@@ -108,7 +109,7 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
             <>
               <dl className="kv">
                 <dt>Done by</dt><dd>Human</dd>
-                <dt>Handling time</dt><dd className="num">{step.minutesPerCase.toFixed(1)} min / {template.unit}</dd>
+                <dt>Handling time</dt><dd className="num">{step.minutesPerCase.toFixed(1)} min / {process.unit}</dd>
                 <dt>Hours / yr</dt><dd className="num">{formatInt((perYear * step.minutesPerCase) / 60)}</dd>
               </dl>
               <p className="note">Switch to To-be to redesign this step.</p>
