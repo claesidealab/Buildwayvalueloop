@@ -71,3 +71,4 @@ docs/          plan, architecture, prototype
 
 - [Product plan](docs/PLAN.md): vision, modules, business model, roadmap
 - [Architecture](docs/ARCHITECTURE.md): stack, data model, value model, integrations
+- [Deploying](docs/DEPLOY.md): getting a review link on Vercel with a Neon database
