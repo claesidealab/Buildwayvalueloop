@@ -57,7 +57,7 @@ export default function ScenarioPage({ params }: { params: Promise<{ scenarioId:
     const l = linked.find((x) => x.p.id === g.check!.processId);
     if (!l) return evaluateGate(plan, g, null);
     const basis = measureBasis(l.p, null);
-    return evaluateGate(plan, g, { actuals: l.p.actuals, net: basis.net, aiCost: basis.aiCost, assumptions: basis.assumptions, entry: l.sf });
+    return evaluateGate(plan, g, { actuals: l.p.actuals, net: basis.net, aiCost: basis.aiCost, assumptions: basis.assumptions, agentSteps: basis.agentSteps, entry: l.sf });
   };
   const setCheck = (gateId: string, check: GateCheck | undefined) =>
     setScenario((s) => ({ ...s, gates: s.gates.map((x) => (x.id === gateId ? { ...x, check } : x)) }));

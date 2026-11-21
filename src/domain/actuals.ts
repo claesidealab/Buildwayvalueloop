@@ -13,8 +13,8 @@
  * the scenario's go-live and ramp (see plannedForMonth in strategy.ts):
  *
  *   realised = hours_released × cost per hour × (1 − oversight share)
- *              − AI cost (ai_cost_sek if uploaded, else the sum of agent_cost_sek per step if any,
- *                         else the plan's AI cost / 12)
+ *              − AI cost (ai_cost_sek if uploaded, else the sum of agent_cost_sek when every
+ *                         agent step reports one that month, else the plan's AI cost / 12)
  *              − fixed cost / 12
  */
 import type { Assumptions } from "./types";
@@ -46,13 +46,15 @@ export const METRICS: MetricDef[] = [
 const METRIC = new Map(METRICS.map((m) => [m.key, m]));
 
 /** Realised value for one month, by the formula above; null when hours_released is missing. */
-export function realisedForMonth(points: ActualPoint[], period: string, plan: { aiCost: number; assumptions: Assumptions }): number | null {
+export function realisedForMonth(points: ActualPoint[], period: string, plan: { aiCost: number; assumptions: Assumptions; agentSteps?: string[] }): number | null {
   const get = (metric: string) => points.find((p) => p.period === period && p.metric === metric && p.step === null)?.value;
   const hours = get("hours_released");
   if (hours === undefined) return null;
   const a = plan.assumptions;
+  // Agent costs replace the plan's AI cost only when they cover every agent; partial telemetry would understate it.
   const agentCosts = points.filter((p) => p.period === period && p.metric === "agent_cost_sek" && p.step !== null);
-  const ai = get("ai_cost_sek") ?? (agentCosts.length ? agentCosts.reduce((t, p) => t + p.value, 0) : plan.aiCost / 12);
+  const covered = !!plan.agentSteps?.length && plan.agentSteps.every((s) => agentCosts.some((p) => p.step === s));
+  const ai = get("ai_cost_sek") ?? (covered ? agentCosts.reduce((t, p) => t + p.value, 0) : plan.aiCost / 12);
   return hours * a.costPerHour * (1 - a.oversightShare / 100) - ai - a.fixedCostPerYear / 12;
 }
 
@@ -151,7 +153,7 @@ export interface ActualsSummary {
 /** Monthly plan vs realised value, latest process KPIs and latest step stats. */
 export function summariseActuals(
   points: ActualPoint[],
-  plan: { net: number; aiCost: number; assumptions: Assumptions; planFor?: (period: string) => number },
+  plan: { net: number; aiCost: number; assumptions: Assumptions; agentSteps?: string[]; planFor?: (period: string) => number },
 ): ActualsSummary {
   const periods = [...new Set(points.map((p) => p.period))].sort();
   const months: MonthResult[] = periods.map((period) => {

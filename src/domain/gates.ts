@@ -19,6 +19,7 @@ export interface GateProcessData {
   net: number;
   aiCost: number;
   assumptions: Assumptions;
+  agentSteps?: string[];
   /** The process's flow entry in the scenario the gate belongs to; null = flat plan (net / 12). */
   entry: Pick<ScenarioFlow, "goLive" | "rampMonths"> | null;
 }

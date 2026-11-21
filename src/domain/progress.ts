@@ -31,6 +31,8 @@ export interface MeasureBasis {
   net: number;
   aiCost: number;
   assumptions: Assumptions;
+  /** Steps carried by agents in the measured design; their telemetry costs can stand in for the AI cost. */
+  agentSteps: string[];
   /** Go-live and ramp from the chosen scenario, when the process is in it. */
   entry: Pick<ScenarioFlow, "goLive" | "rampMonths"> | null;
   scenarioName: string | null;
@@ -49,7 +51,7 @@ export function measureBasis(
   const link = strategy ? scenarioFlowForProcess(strategy, p.id) : null;
   const entry = link ? { goLive: link.entry.goLive, rampMonths: link.entry.rampMonths } : null;
   return {
-    net, aiCost: vc.aiCost, assumptions, entry, scenarioName: link?.scenario.name ?? null,
+    net, aiCost: vc.aiCost, assumptions, agentSteps: vc.steps.filter((s) => s.lane === "agent").map((s) => s.step.id), entry, scenarioName: link?.scenario.name ?? null,
     planFor: (period) => (entry && strategy ? plannedForMonth(strategy, entry, net, period) : net / 12),
   };
 }

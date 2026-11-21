@@ -64,7 +64,7 @@ realised share         = Σ realised ÷ Σ plan, over months with hours_released
 stage                  = furthest of stored stage, find (steps), build (baseline), run (actuals)
 light                  = with actuals: green ≥ 90% realised share, amber ≥ 70%, red below
 step alert             = agent success < 80% or escalation > 15% in the latest month
-AI cost in a month     = ai_cost_sek if uploaded, else Σ agent_cost_sek over steps if any, else plan AI cost / 12
+AI cost in a month     = ai_cost_sek if uploaded, else Σ agent_cost_sek when every agent step reports one, else plan AI cost / 12
 ```
 
 CSV: `month,metric,step,value`, comma or semicolon separated (decimal comma allowed with semicolons). Metrics: `hours_released`, `ai_cost_sek`, `cases`, `handled_without_human`, `cost_per_case`, `csat` (process level) and `success_rate`, `escalation_rate` (per step). Uploads are all or nothing: any bad row and nothing is stored; the response lists problems by line. Re-uploading a month replaces its values (unique per process, step, metric, month and source).
