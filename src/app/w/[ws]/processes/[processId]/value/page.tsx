@@ -19,7 +19,7 @@ const SLIDERS: Array<{ key: keyof Assumptions; label: string; min: number; max: 
 
 export default function ValuePage({ params }: { params: Promise<{ processId: string }> }) {
   const { processId } = use(params);
-  const { process, value, loading, setAssumption, approveBaseline } = useProcess(processId);
+  const { process, value, loading, setAssumption, approveBaseline, can, path } = useProcess(processId);
   if (loading) return null;
   if (!process || !value) return <NotFound />;
 
@@ -35,7 +35,7 @@ export default function ValuePage({ params }: { params: Promise<{ processId: str
         right={
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             {b && <span className="approved">● Baseline approved {new Date(b.approvedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} · {formatMSEK(b.net)} MSEK</span>}
-            <button className="btn btn-pri" onClick={() => approveBaseline(process.id)}>{b ? "Re-approve baseline" : "Approve as baseline"}</button>
+            {can("baseline.approve") && <button className="btn btn-pri" onClick={() => approveBaseline(process.id)}>{b ? "Re-approve baseline" : "Approve as baseline"}</button>}
           </div>
         } />
       <div className="vgrid">
@@ -47,7 +47,7 @@ export default function ValuePage({ params }: { params: Promise<{ processId: str
             return (
               <div className="sl" key={s.key}>
                 <div className="sl-top"><label htmlFor={s.key}>{s.label}</label><b className="num">{shown}{s.unit ?? ""}</b></div>
-                <input type="range" id={s.key} min={s.min} max={s.max} step={s.step} value={raw} onChange={(e) => setAssumption(process.id, s.key, Number(e.target.value))} />
+                <input type="range" id={s.key} min={s.min} max={s.max} step={s.step} value={raw} disabled={!can("design.edit")} onChange={(e) => setAssumption(process.id, s.key, Number(e.target.value))} />
               </div>
             );
           })}
@@ -78,7 +78,7 @@ export default function ValuePage({ params }: { params: Promise<{ processId: str
             </div>
           </section>
           <section className="panel">
-            <div className="panel-h"><h2>Hours released per step</h2><Link className="btn btn-sm" href={`/processes/${process.id}/map`}>Change in redesign</Link></div>
+            <div className="panel-h"><h2>Hours released per step</h2><Link className="btn btn-sm" href={path(`/processes/${process.id}/map`)}>Change in redesign</Link></div>
             <div className="hbars">
               {value.steps.map((s) => (
                 <div className="hb" key={s.step.id}>

@@ -8,12 +8,17 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Assumptions, AutonomyLevel } from "@/domain/types";
 import type { ProcessInstance, WorkspaceState } from "./api-types";
-import { WORKSPACE } from "./config";
+import type { Permission } from "@/domain/permissions";
 
 export type { ProcessInstance, WorkspaceState };
 
 interface Store {
+  slug: string;
   state: WorkspaceState | null;
+  /** Whether the signed-in user's role allows this in the current workspace. */
+  can: (p: Permission) => boolean;
+  /** Path inside the current workspace, e.g. path("/templates"). */
+  path: (p: string) => string;
   error: string | null;
   saving: boolean;
   getProcess: (id: string) => ProcessInstance | undefined;
@@ -25,10 +30,15 @@ interface Store {
 }
 
 const Ctx = createContext<Store | null>(null);
-const base = `/api/workspaces/${WORKSPACE}`;
 
-async function call(method: string, url: string, body?: unknown): Promise<WorkspaceState> {
+export class AuthError extends Error {}
+
+export async function call<T = WorkspaceState>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, { method, headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new AuthError("Please sign in");
+  }
   if (!res.ok) {
     const msg = await res.json().then((j) => j.error as string).catch(() => res.statusText);
     throw new Error(msg || `Request failed (${res.status})`);
@@ -36,7 +46,8 @@ async function call(method: string, url: string, body?: unknown): Promise<Worksp
   return res.json();
 }
 
-export function WorkspaceProvider({ children }: { children: ReactNode }) {
+export function WorkspaceProvider({ slug, children }: { slug: string; children: ReactNode }) {
+  const base = `/api/workspaces/${slug}`;
   const [state, setState] = useState<WorkspaceState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
@@ -46,9 +57,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const load = useCallback(async () => {
     try { setState(await call("GET", base)); setError(null); }
     catch (e) { setError(`Could not load the workspace: ${(e as Error).message}`); }
-  }, []);
+  }, [base]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setState(null); void load(); }, [load]);
 
   /** Optimistic local change, then a request whose response replaces state if it is still the newest. */
   const mutate = useCallback((local: (s: WorkspaceState) => WorkspaceState, request: () => Promise<WorkspaceState>) => {
@@ -66,7 +77,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   });
 
   const store = useMemo<Store>(() => ({
+    slug,
     state,
+    can: (p) => !!state?.me.permissions.includes(p),
+    path: (p) => `/w/${slug}${p}`,
     error,
     saving: pending > 0,
     getProcess: (id) => state?.processes.find((p) => p.id === id),
@@ -98,7 +112,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     },
     approveBaseline: (pid) => mutate((s) => s, () => call("POST", `${base}/processes/${pid}/baselines`)),
     reset: () => mutate((s) => s, () => call("POST", `${base}/reset`)),
-  }), [state, error, pending, mutate]);
+  }), [slug, base, state, error, pending, mutate]);
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }

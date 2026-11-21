@@ -8,7 +8,7 @@
 | Domain | Plain TypeScript in `src/domain`, no framework imports | Testable, reusable on server and client |
 | Database | Postgres via Drizzle ORM; embedded PGlite when `DATABASE_URL` is unset | Relational model fits processes, steps and baselines; no database server needed in development or tests |
 | Validation | zod at the API boundary | Reject bad input before it reaches the database |
-| Auth | To decide: Auth.js or a managed provider with SSO (Entra ID, Google) | Enterprise customers need SSO |
+| Auth | Own session handling plus OAuth/OpenID Connect via `arctic` (Microsoft Entra ID, Google) | Work-account sign-in for enterprise customers; few moving parts |
 | AI | Claude via the Anthropic API | Draft maps from documents, suggest placements, explain value |
 | Simulation | Python service (phase 2) | Discrete-event or Monte Carlo simulation of the to-be |
 | Telemetry | OpenTelemetry GenAI conventions plus connectors (phase 2) | Vendor-neutral agent monitoring |
@@ -48,11 +48,24 @@ range            = net − 25% … net + 15% of labour benefit   (until simulati
 
 Agent fit (`src/domain/fit.ts`) scores 0–100 from four ratings (volume, rule-based, data ready, error risk) and suggests a level. High error risk caps the suggestion at L2.
 
-## Multi-tenancy and roles
+## Sign-in, workspaces and roles
 
-- Every tenant-owned row carries `workspace_id`, and every repository query filters on it. Postgres row-level security is added with sign-in.
-- Roles: `advisor` (Buildway, may belong to many workspaces), `customer_admin`, `process_owner`, `viewer`.
-- Advisors approve baselines in phase 1; customer admins can approve in the self-serve stage.
+- **Sign-in** (`src/server/auth-config.ts`, `src/app/api/auth/*`): OAuth with PKCE and state cookies, then the ID token's claims (email, name, subject) from the provider's token endpoint. Microsoft identities are keyed on `tenant:object id`; Google requires a verified email. A provider is shown only when its keys are set.
+- **Sessions** (`src/server/access.ts`, `src/server/session.ts`): a random 32-byte token in an `httpOnly`, `SameSite=Lax` cookie (`Secure` in production); only its SHA-256 hash is stored. Sessions last 30 days and are extended when less than 15 days remain. Sign-out deletes the session.
+- **Users and identities:** one user per email; an identity row links each provider account to it. First sign-in creates the user, links by email, and accepts any pending invitations for that email.
+- **Buildway staff:** email domain in `BUILDWAY_EMAIL_DOMAINS`. Only they can create workspaces or hold the advisor role.
+- **Membership is the only way into a workspace.** Non-members get 404, so workspace names don't leak.
+- **Developer sign-in:** signs in as an existing example user; on by default only outside production.
+- **CSRF:** cookies are `SameSite=Lax`, and `src/middleware.ts` refuses non-GET API calls whose `Origin` is another site.
+
+| Role | Read | Edit designs and assumptions | Approve baselines | Manage members | Reset example |
+|---|---|---|---|---|---|
+| Viewer | ✓ | | | | |
+| Process owner | ✓ | ✓ | | | |
+| Admin (customer) | ✓ | ✓ | ✓ | ✓ | |
+| Buildway advisor | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+Permissions live in `src/domain/permissions.ts`. Every API route calls `guard(workspace, permission)` in `src/server/http.ts`, which signs the user in from the cookie and checks the role. The UI hides or disables what the role can't do, but the server is what enforces it. A workspace always keeps at least one admin or advisor.
 
 ## Integrations (in order)
 
@@ -71,19 +84,33 @@ Agent fit (`src/domain/fit.ts`) scores 0–100 from four ratings (volume, rule-b
 
 ## API
 
-All responses to successful calls return the full workspace state (`WorkspaceState` in `src/lib/api-types.ts`).
+Workspace calls return the full workspace state (`WorkspaceState` in `src/lib/api-types.ts`), including `me`: the caller's role and permissions. Pages live under `/w/:ws/...`.
 
-| Method | Path | Body |
-|---|---|---|
-| GET | `/api/workspaces/:ws` | – |
-| PATCH | `/api/workspaces/:ws/processes/:process/steps/:step` | `{ autonomy?: 0–4, isSystem?: boolean }` |
-| PATCH | `/api/workspaces/:ws/processes/:process/assumptions` | any subset of `Assumptions` |
-| POST | `/api/workspaces/:ws/processes/:process/baselines` | – |
-| POST | `/api/workspaces/:ws/reset` | – (example workspaces only) |
+| Method | Path | Body | Permission |
+|---|---|---|---|
+| GET | `/api/auth/providers` | – | public |
+| GET | `/api/auth/login/:provider`, `/api/auth/callback/:provider` | – | public (OAuth flow) |
+| POST | `/api/auth/dev-login` | `{ email }` | developer sign-in only |
+| POST | `/api/auth/logout` | – | signed in |
+| GET | `/api/me` | – | signed in |
+| POST | `/api/workspaces` | `{ name, slug }` | Buildway staff |
+| GET | `/api/workspaces/:ws` | – | workspace.read |
+| PATCH | `/api/workspaces/:ws/processes/:process/steps/:step` | `{ autonomy?: 0–4, isSystem?: boolean }` | design.edit |
+| PATCH | `/api/workspaces/:ws/processes/:process/assumptions` | any subset of `Assumptions` | design.edit |
+| POST | `/api/workspaces/:ws/processes/:process/baselines` | – | baseline.approve |
+| POST | `/api/workspaces/:ws/reset` | – (example workspaces only) | workspace.reset |
+| GET, POST | `/api/workspaces/:ws/members` | POST `{ email, role }` | read / members.manage |
+| PATCH, DELETE | `/api/workspaces/:ws/members/:userId` | PATCH `{ role }` | members.manage |
+| DELETE | `/api/workspaces/:ws/invitations/:id` | – | members.manage |
+
+Errors: 400 invalid input, 401 not signed in, 403 role doesn't allow it, 404 not found or not a member, 409 conflict.
 
 The client store (`src/lib/store.tsx`) applies changes optimistically, sends slider changes after 300 ms of rest, and ignores responses that arrive after a newer change.
 
 ## Current gaps
 
-- No sign-in yet: every request acts as the seeded Buildway advisor, and the app shows one workspace (`NEXT_PUBLIC_WORKSPACE`, default `acme-support`). Phase 1, step 2 adds sign-in, memberships checks on every route and row-level security.
+- Microsoft and Google sign-in are implemented but not yet tried against real accounts (needs app registrations).
+- Invitations are not emailed: tell people to sign in with the invited address. Email delivery comes with an email provider.
+- Postgres row-level security as a second line of defence is not switched on yet; isolation relies on the repository's workspace filters, covered by tests.
+- No rate limiting on sign-in routes yet; add at the hosting layer.
 - Monitoring uses example actuals marked in the UI; the `actuals` table is ready for CSV upload.

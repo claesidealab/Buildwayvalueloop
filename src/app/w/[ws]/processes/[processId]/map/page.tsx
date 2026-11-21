@@ -19,7 +19,8 @@ const LANES: Array<{ key: Lane; label: string; dot: string }> = [
 
 export default function MapPage({ params }: { params: Promise<{ processId: string }> }) {
   const { processId } = use(params);
-  const { process, value, loading, setLevel, setSystemStep } = useProcess(processId);
+  const { process, value, loading, setLevel, setSystemStep, can, path } = useProcess(processId);
+  const editable = can("design.edit");
   const initial = useSearchParams().get("step");
   const [mode, setMode] = useState<"asis" | "tobe">("tobe");
   const [sel, setSel] = useState<string>(initial ?? "resolve");
@@ -71,7 +72,7 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
             <div><small>Net value / yr</small><b className="num">{tobe ? `${formatMSEK(value.net)} MSEK` : "—"}</b></div>
             <div><small>Steps done by people</small><b className="num">{tobe ? value.stepsDoneByPeople : process.steps.length} of {process.steps.length}</b></div>
             <div><small>Hours released / yr</small><b className="num">{tobe ? formatInt(value.hoursReleased) : 0}</b></div>
-            <div className="go"><Link className="btn" href={`/processes/${process.id}/value`}>Open value case</Link></div>
+            <div className="go"><Link className="btn" href={path(`/processes/${process.id}/value`)}>Open value case</Link></div>
           </div>
         </section>
 
@@ -85,7 +86,7 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
                 <p className="label" style={{ marginBottom: 8 }}>Autonomy</p>
                 <div className="levels" role="group" aria-label="Autonomy level">
                   {AUTONOMY_LEVELS.map((L) => (
-                    <button key={L.level} aria-pressed={L.level === sv.level} title={`${L.name}: ${L.description}`} onClick={() => setLevel(process.id, step.id, L.level as AutonomyLevel)}>
+                    <button key={L.level} disabled={!editable} aria-pressed={L.level === sv.level} title={`${L.name}: ${L.description}`} onClick={() => setLevel(process.id, step.id, L.level as AutonomyLevel)}>
                       <b>L{L.level}</b><span>{L.short}</span>
                     </button>
                   ))}
@@ -93,7 +94,7 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
                 <p className="muted" style={{ marginTop: 8, fontSize: 14 }}><b>{AUTONOMY_LEVELS[sv.level].name}.</b> {AUTONOMY_LEVELS[sv.level].description}</p>
               </div>
               <label className="check">
-                <input type="checkbox" checked={process.design.systemSteps.includes(step.id)} disabled={sv.level < 4} onChange={(e) => setSystemStep(process.id, step.id, e.target.checked)} />
+                <input type="checkbox" checked={process.design.systemSteps.includes(step.id)} disabled={!editable || sv.level < 4} onChange={(e) => setSystemStep(process.id, step.id, e.target.checked)} />
                 Run as a rule-based system, not an AI agent
               </label>
               <dl className="kv">

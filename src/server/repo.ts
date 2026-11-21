@@ -54,7 +54,7 @@ async function designLevels(q: Q, designId: string, stepRows: Array<{ id: string
   return { levels, systemSteps };
 }
 
-export async function getWorkspaceState(db: DB, wsSlug: string): Promise<WorkspaceState> {
+export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<WorkspaceState, "me">> {
   const ws = await workspaceBySlug(db, wsSlug);
   const procs = await db.select().from(processes).where(eq(processes.workspaceId, ws.id)).orderBy(asc(processes.position));
   const allSteps = procs.length
@@ -165,7 +165,15 @@ export async function approveBaseline(db: DB, wsSlug: string, processSlug: strin
 export const EXAMPLE_WORKSPACE = "acme-support";
 export const EXAMPLE_ADVISOR_EMAIL = "advisor@buildway.example";
 
-/** The acting user until sign-in exists (phase 1, step 2). */
+/** Example people, one per role. They can only sign in through the developer sign-in. */
+export const EXAMPLE_USERS = [
+  { email: EXAMPLE_ADVISOR_EMAIL, name: "Buildway advisor", isBuildway: true, role: "advisor" },
+  { email: "admin@acme.example", name: "Anna Admin (example)", isBuildway: false, role: "customer_admin" },
+  { email: "owner@acme.example", name: "Olle Owner (example)", isBuildway: false, role: "process_owner" },
+  { email: "viewer@acme.example", name: "Vera Viewer (example)", isBuildway: false, role: "viewer" },
+] as const;
+
+/** The example Buildway advisor's user id (creates the user if needed). */
 export async function ensureAdvisor(db: DB): Promise<string> {
   const [u] = await db.insert(users).values({ email: EXAMPLE_ADVISOR_EMAIL, name: "Buildway advisor", isBuildway: true })
     .onConflictDoUpdate({ target: users.email, set: { name: "Buildway advisor" } }).returning();
@@ -179,7 +187,11 @@ export async function seedExample(db: DB): Promise<boolean> {
     const [existing] = await tx.select().from(workspaces).where(eq(workspaces.slug, EXAMPLE_WORKSPACE));
     if (existing) return false;
     const [ws] = await tx.insert(workspaces).values({ slug: EXAMPLE_WORKSPACE, name: "Acme Support", isExample: true }).returning();
-    await tx.insert(memberships).values({ workspaceId: ws.id, userId: advisorId, role: "advisor" });
+    for (const eu of EXAMPLE_USERS) {
+      const [u] = await tx.insert(users).values({ email: eu.email, name: eu.name, isBuildway: eu.isBuildway })
+        .onConflictDoUpdate({ target: users.email, set: { name: eu.name } }).returning();
+      await tx.insert(memberships).values({ workspaceId: ws.id, userId: u.id, role: eu.role }).onConflictDoNothing();
+    }
 
     const tpl = customerService;
     const [cs] = await tx.insert(processes).values({

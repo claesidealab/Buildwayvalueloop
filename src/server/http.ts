@@ -1,23 +1,35 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb, type DB } from "./db";
-import { ConflictError, ensureAdvisor, getWorkspaceState, NotFoundError, seedExample } from "./repo";
+import { ConflictError, getWorkspaceState, NotFoundError, seedExample } from "./repo";
+import { authorize, ForbiddenError, UnauthorizedError, type Access, type SessionUser } from "./access";
+import { requireUser } from "./session";
+import { permissionsOf, type Permission } from "@/domain/permissions";
+import type { Role } from "@/domain/types";
 
-const g = globalThis as unknown as { __bwReady?: Promise<{ db: DB; actorId: string }> };
+const g = globalThis as unknown as { __bwReady?: Promise<{ db: DB }> };
 
-/** Database plus the acting user. Seeds the example workspace on first use. */
+/** The database. Seeds the example workspace on first use. */
 export function app() {
   g.__bwReady ??= (async () => {
     const db = await getDb();
     await seedExample(db);
-    // Until sign-in exists, every request acts as the example Buildway advisor.
-    return { db, actorId: await ensureAdvisor(db) };
+    return { db };
   })().catch((e) => { g.__bwReady = undefined; throw e; });
   return g.__bwReady;
 }
 
-export async function stateResponse(db: DB, ws: string) {
-  return NextResponse.json(await getWorkspaceState(db, ws));
+/** Signed-in user with the given permission in the workspace, or a 401/403/404 error. */
+export async function guard(wsSlug: string, permission: Permission): Promise<{ db: DB; user: SessionUser; access: Access }> {
+  const { db } = await app();
+  const user = await requireUser(db);
+  return { db, user, access: await authorize(db, wsSlug, user, permission) };
+}
+
+/** Full workspace state plus what the caller may do in it. */
+export async function stateResponse(db: DB, user: SessionUser, access: Access) {
+  const state = await getWorkspaceState(db, access.workspaceSlug);
+  return NextResponse.json({ ...state, me: { name: user.name, email: user.email, isBuildway: user.isBuildway, role: access.role as Role, permissions: permissionsOf(access.role) } });
 }
 
 /** Runs a handler and maps domain errors to HTTP status codes. */
@@ -26,6 +38,8 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
     return await fn();
   } catch (e) {
     if (e instanceof z.ZodError) return NextResponse.json({ error: "Invalid request", issues: e.issues }, { status: 400 });
+    if (e instanceof UnauthorizedError) return NextResponse.json({ error: e.message }, { status: 401 });
+    if (e instanceof ForbiddenError) return NextResponse.json({ error: e.message }, { status: 403 });
     if (e instanceof NotFoundError) return NextResponse.json({ error: e.message }, { status: 404 });
     if (e instanceof ConflictError) return NextResponse.json({ error: e.message }, { status: 409 });
     if (e instanceof SyntaxError) return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
@@ -51,3 +65,5 @@ export const assumptionsPatchSchema = z
   .partial()
   .strict()
   .refine((v) => Object.keys(v).length > 0, "Send at least one assumption");
+
+export const roleSchema = z.enum(["advisor", "customer-admin", "process-owner", "viewer"]);

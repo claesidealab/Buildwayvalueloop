@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.17",
+    "arctic": "^3.7.0",
     "drizzle-orm": "^0.45.4",
     "next": "^15.5.0",
     "pg": "^8.23.1",

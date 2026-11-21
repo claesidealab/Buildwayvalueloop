@@ -20,7 +20,7 @@ Phase 1 groundwork. What works today:
 | Customer service template v1 | Done (`src/templates`) |
 | Overview, templates, redesign canvas, agent fit, value case, monitor | Working screens |
 | Database and API | Done: Postgres via Drizzle, migrations, REST API, audit log, tests |
-| Sign-in, workspaces and roles | Next (schema ready, every request acts as the example advisor) |
+| Sign-in, workspaces and roles | Done: Microsoft and Google sign-in, sessions, four roles, invitations, members page |
 | Monitoring actuals | Example data; CSV upload and first connector are planned |
 
 The original clickable prototype is kept in [docs/prototype/buildway-loop.html](docs/prototype/buildway-loop.html).
@@ -30,6 +30,17 @@ The original clickable prototype is kept in [docs/prototype/buildway-loop.html](
 Requires Node 20 or later. No database server is needed for development: without `DATABASE_URL` the app uses an embedded Postgres (PGlite) stored in `.data/pglite`, creates the tables and loads the example workspace on first request. Delete `.data/` to start over.
 
 To use a real Postgres, copy `.env.example` to `.env.local` and set `DATABASE_URL`.
+
+### Signing in
+
+In development (`npm run dev`) the login page offers a **developer sign-in** with four example people, one per role. It is off in production unless `AUTH_DEV_LOGIN=true`.
+
+For real sign-in, register the app with Microsoft and/or Google and set the keys in `.env.local` (see `.env.example`). The redirect URI to register is `<AUTH_URL>/api/auth/callback/microsoft-entra-id` or `<AUTH_URL>/api/auth/callback/google`.
+
+- **Microsoft (Entra ID):** Azure portal → App registrations → New registration. Use tenant `organizations` to accept any company's work account. Add a client secret.
+- **Google:** Google Cloud console → APIs & Services → Credentials → OAuth client ID (web application).
+
+People whose email domain is in `BUILDWAY_EMAIL_DOMAINS` (default `buildway.se`) are Buildway staff: they can create workspaces and are added to the example workspace as advisors. Everyone else sees only the workspaces they have been invited to.
 
 ```bash
 npm install

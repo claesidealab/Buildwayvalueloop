@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useState } from "react";
 import { TEMPLATES, UPCOMING_TEMPLATES } from "@/templates";
 import { PageHead } from "@/components/ui";
+import { useWorkspace } from "@/lib/store";
 
 export default function Templates() {
+  const { path } = useWorkspace();
   const [selected, setSelected] = useState<string>(TEMPLATES[0].id);
   const tpl = TEMPLATES.find((t) => t.id === selected);
   const upcoming = UPCOMING_TEMPLATES.find((t) => t.id === selected);
@@ -31,7 +33,7 @@ export default function Templates() {
       <section className="panel">
         {tpl ? (
           <>
-            <div className="panel-h"><h2>{tpl.name}</h2><Link className="btn btn-pri" href="/processes/customer-service/map">Use this template</Link></div>
+            <div className="panel-h"><h2>{tpl.name}</h2><Link className="btn btn-pri" href={path("/processes/customer-service/map")}>Use this template</Link></div>
             <div className="tdetail">
               <div><p className="label">Steps</p><ul>{tpl.steps.map((s) => <li key={s.id}>{s.name}</li>)}</ul></div>
               <div><p className="label">Agent patterns</p><ul>{tpl.agentPatterns.map((a) => <li key={a}>{a}</li>)}</ul></div>

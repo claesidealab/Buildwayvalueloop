@@ -6,6 +6,7 @@
 - Brand: tokens live at the top of `src/app/globals.css` (cream, dark green ink, rust accent, Bricolage Grotesque and Instrument Sans). Stage colours: Find = sage, Build = coral, Run = dark green. Lanes use the same colours: human = dark green, agent = coral, system = sage.
 - Mark example or placeholder data as such in the UI.
 - Database: change `src/server/db/schema.ts`, then `npx drizzle-kit generate --name <change>` and commit the migration. Never edit an existing migration.
-- All data access goes through `src/server/repo.ts`, scoped by workspace. Compute values on the server with `src/domain`; never trust values sent by the client.
-- Repository changes need a test in `src/server/repo.test.ts` (in-memory PGlite).
+- All data access goes through `src/server/repo.ts` (workspace content) and `src/server/access.ts` (users, sessions, members), scoped by workspace.
+- Every workspace API route must start with `guard(ws, permission)` from `src/server/http.ts`, before reading the body. New permissions go in `src/domain/permissions.ts` with a test. Compute values on the server with `src/domain`; never trust values sent by the client.
+- Repository and access changes need tests in `src/server/repo.test.ts` or `src/server/access.test.ts` (in-memory PGlite).
 - Before committing: `npm test`, `npm run typecheck`, `npm run build`.

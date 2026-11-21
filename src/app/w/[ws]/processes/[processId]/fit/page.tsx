@@ -14,7 +14,8 @@ const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 
 export default function FitPage({ params }: { params: Promise<{ processId: string }> }) {
   const { processId } = use(params);
-  const { process, value, loading, setLevel } = useProcess(processId);
+  const { process, value, loading, setLevel, can } = useProcess(processId);
+  const editable = can("design.edit");
   if (loading) return null;
   if (!process || !value) return <NotFound />;
 
@@ -24,7 +25,7 @@ export default function FitPage({ params }: { params: Promise<{ processId: strin
     <>
       <PageHead dot="build" eyebrow={`Build · ${process.name}`} title="Agent fit"
         sub="Each step is scored on volume, how rule-based it is, data readiness and the cost of an error. Apply a suggestion or keep your own level."
-        right={<button className="btn btn-pri" onClick={applyAll}>Apply all suggestions</button>} />
+        right={editable ? <button className="btn btn-pri" onClick={applyAll}>Apply all suggestions</button> : undefined} />
       <section className="panel">
         <div className="scroller">
           <table className="tbl">
@@ -39,7 +40,7 @@ export default function FitPage({ params }: { params: Promise<{ processId: strin
                     <td><div className="score num">{score}<span className="bar"><i style={{ width: `${score}%` }} /></span></div></td>
                     <td><LevelBadge level={sug} lane={laneOf(s.id, sug, process.design)} /></td>
                     <td><LevelBadge level={cur} lane={laneOf(s.id, cur, process.design)} /></td>
-                    <td>{cur === sug ? <span className="muted" style={{ fontSize: 13 }}>Applied</span> : <button className="btn btn-sm" onClick={() => setLevel(process.id, s.id, sug)}>Apply</button>}</td>
+                    <td>{cur === sug ? <span className="muted" style={{ fontSize: 13 }}>Applied</span> : !editable ? null : <button className="btn btn-sm" onClick={() => setLevel(process.id, s.id, sug)}>Apply</button>}</td>
                   </tr>
                 );
               })}

@@ -18,7 +18,7 @@ const EXAMPLE_AGENT_STATS: Record<string, [number, number]> = {
 
 export default function MonitorPage({ params }: { params: Promise<{ processId: string }> }) {
   const { processId } = use(params);
-  const { process, value, loading } = useProcess(processId);
+  const { process, value, loading, path } = useProcess(processId);
   if (loading) return null;
   if (!process || !value) return <NotFound />;
 
@@ -48,7 +48,7 @@ export default function MonitorPage({ params }: { params: Promise<{ processId: s
       <div className="gap">
         <TrafficLight gate="amber" />
         <p><b>Gap traced to Resolve.</b> Billing cases escalate at 24% against 12% planned. That explains most of the shortfall.</p>
-        <Link className="btn btn-pri" href={`/processes/${process.id}/map?step=resolve`}>Open Resolve in redesign</Link>
+        <Link className="btn btn-pri" href={path(`/processes/${process.id}/map?step=resolve`)}>Open Resolve in redesign</Link>
       </div>
       <div className="mgrid">
         <section className="panel">

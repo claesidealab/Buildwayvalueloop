@@ -73,7 +73,7 @@ Land with advisory, expand with licences, retain with managed services.
 - [x] Customer service template v1
 - [x] Screens: overview, templates, redesign canvas, agent fit, value case, monitor
 - [x] Postgres persistence and API, with audit log and server-computed baselines
-- [ ] Sign-in, workspaces and roles (advisor, customer admin, process owner, viewer)
+- [x] Sign-in (Microsoft, Google, developer sign-in), workspaces, roles and invitations
 - [ ] Draft an as-is map from SOPs and interview notes with Claude
 - [ ] Actuals via CSV upload, then one connector (Zendesk or ServiceNow)
 - [ ] Baseline history view (data is stored; audit log is written)
