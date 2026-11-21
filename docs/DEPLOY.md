@@ -34,6 +34,17 @@ Supabase is plain Postgres and works the same way:
 
 5. Deploy. Every push to the repository then updates the site automatically.
 
+### Or: Netlify
+
+The repository includes `netlify.toml`, so Netlify needs no build settings.
+
+1. app.netlify.com → **Add new project → Import an existing project → GitHub**, and allow Netlify access to `claesidealab/Buildwayvalueloop`.
+2. Branch to deploy: `claude/ai-native-platform-planning-td4q73` (until there is a `main` branch).
+3. Before deploying, add the same environment variables as above (`DATABASE_URL`, `AUTH_DEV_LOGIN`, `BUILDWAY_EMAIL_DOMAINS`).
+4. Deploy. Every push to that branch updates the site.
+
+To keep the review site private on Netlify, use **Project configuration → Access & security → Visitor access** (password protection), where your plan offers it.
+
 ## Who can open it
 
 `AUTH_DEV_LOGIN=true` shows the one-click example users on the login page, so anyone who has the link can get in as them. Only the example workspace exists, so that's fine for a review, but keep the link private, and turn on **Settings → Deployment Protection → Vercel Authentication** so only people in your Vercel team can open the site at all.
