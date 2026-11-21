@@ -2,7 +2,7 @@
   "name": "buildway-value-loop",
   "version": "0.1.0",
   "private": true,
-  "description": "Buildway Loop: redesign processes, place AI agents, prove the value and run it.",
+  "description": "Value Loop by Buildway: redesign processes, place AI agents, prove the value and run it.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

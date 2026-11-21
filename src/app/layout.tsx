@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Buildway Loop",
+  title: "Value Loop",
   description: "Redesign processes, place AI agents, prove the value and run it.",
 };
 

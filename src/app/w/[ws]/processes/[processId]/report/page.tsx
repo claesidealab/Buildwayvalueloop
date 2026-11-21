@@ -111,7 +111,7 @@ export default function ReportPage({ params }: { params: Promise<{ processId: st
         <footer className="report-foot muted">
           How it is calculated: hours released = cases per year × Σ (minutes per step × share automated at its autonomy level) ÷ 60.
           Agent-led steps scale with agent quality. Net value = value of hours − oversight − AI usage − licences.
-          The range is −25% / +15% of the labour benefit until simulation is added. Buildway Loop.
+          The range is −25% / +15% of the labour benefit until simulation is added. Buildway Value Loop.
         </footer>
       </article>
     </>

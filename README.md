@@ -1,6 +1,6 @@
-# Buildway Loop
+# Value Loop
 
-Buildway's platform for helping companies become AI-native, one process at a time.
+Value Loop is Buildway's platform for helping companies become AI-native, one process at a time.
 
 It runs one closed loop over a shared process model:
 
@@ -25,7 +25,7 @@ Phase 1 groundwork. What works today:
 | History and report | Done: baseline history, activity log, printable one-page value case (save as PDF) |
 | CI | GitHub Actions: tests, types, build, and database tests on Postgres 16 |
 
-The original clickable prototype is kept in [docs/prototype/buildway-loop.html](docs/prototype/buildway-loop.html).
+The original clickable prototype is kept in [docs/prototype/value-loop.html](docs/prototype/value-loop.html).
 
 ## Run it
 

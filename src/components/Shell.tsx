@@ -37,7 +37,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <aside className="rail">
         <div>
           <Logo href={path("")} />
-          <p className="prod">Loop</p>
+          <p className="prod">Value Loop</p>
         </div>
         <div className="ws">
           <label htmlFor="ws-switch"><small>Workspace</small></label>

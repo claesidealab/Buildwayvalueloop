@@ -1,5 +1,5 @@
 /**
- * Core domain model for Buildway Loop.
+ * Core domain model for Value Loop.
  *
  * Every module (redesign, agent fit, value case, monitoring) reads and writes
  * the same objects: Process → Step → Actor (lane) → Autonomy → Metrics → Value.

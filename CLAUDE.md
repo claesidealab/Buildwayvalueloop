@@ -1,4 +1,4 @@
-# Buildway Loop: notes for Claude
+# Value Loop: notes for Claude
 
 - Read `docs/PLAN.md` and `docs/ARCHITECTURE.md` before larger changes.
 - Keep `src/domain` free of React and Next.js imports. Any change to the value model or fit scoring needs a test in `src/domain/*.test.ts`, and an update to the formula block in `docs/ARCHITECTURE.md`.

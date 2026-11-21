@@ -95,7 +95,7 @@ Land with advisory, expand with licences, retain with managed services.
 
 ## Open questions
 
-- Product name: "Buildway Loop" is a working name.
+- ~~Product name~~ Decided: **Value Loop** (by Buildway).
 - UI language: English now; Swedish for Nordic customers?
 - Licence metric: per monitored process, per agent, or per workspace?
 - First connector: which ticketing system do the design partners use?

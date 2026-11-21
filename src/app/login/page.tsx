@@ -39,7 +39,7 @@ export default function LoginPage() {
       <div className="login-card">
         <Logo href="/login" />
         <div>
-          <p className="eyebrow">Buildway Loop</p>
+          <p className="eyebrow">Value Loop</p>
           <h1>Sign in</h1>
           <p className="sub">Use your work account. You'll see the workspaces you've been invited to.</p>
         </div>
