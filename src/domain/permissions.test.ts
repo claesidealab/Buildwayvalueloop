@@ -25,6 +25,12 @@ describe("permissions", () => {
     expect(can("viewer", "strategy.edit")).toBe(false);
   });
 
+  it("lets every role comment on steps, but only editors change them", () => {
+    for (const r of ["viewer", "process-owner", "customer-admin", "advisor"] as const) expect(can(r, "design.comment")).toBe(true);
+    expect(can("viewer", "design.edit")).toBe(false);
+    expect(can(null, "design.comment")).toBe(false);
+  });
+
   it("denies everything without a role", () => {
     expect(can(null, "workspace.read")).toBe(false);
   });

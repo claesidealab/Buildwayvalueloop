@@ -84,6 +84,17 @@ export const newStepSchema = z
   })
   .strict();
 
+export const commentSchema = z.object({ step: z.string().min(1).max(64), body: z.string().trim().min(1).max(2000) }).strict();
+export const resolveSchema = z.object({ resolved: z.boolean() }).strict();
+export const draftRequestSchema = z.object({ text: z.string().min(40, "Paste the SOP or notes: at least a few sentences").max(60_000) }).strict();
+export const mapImportSchema = z.object({
+  steps: z.array(z.object({
+    name: stepName, description: z.string().max(500), minutesPerCase: z.number().min(0).max(1440), caseShare: z.number().min(0).max(100),
+    fit: z.object({ volume: rating, ruleBased: rating, dataReady: rating, errorRisk: rating }).strict(),
+  }).strict()).min(1).max(40),
+  edges: z.array(z.tuple([z.number().int().min(0).max(39), z.number().int().min(0).max(39)])).max(120),
+}).strict();
+
 export const edgeSchema = z.object({ from: z.string().min(1).max(64), to: z.string().min(1).max(64) }).strict();
 
 export const assumptionsPatchSchema = z

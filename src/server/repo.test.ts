@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { DB } from "./db";
 import { createTestDb } from "./test-db";
 import { auditLog, designSteps, workspaces } from "./db/schema";
-import { addEdge, addStep, removeEdge, removeStep, restoreStep, approveBaseline, clearActuals, importActuals, listActivity, listBaselines, ConflictError, ensureAdvisor, EXAMPLE_WORKSPACE as WS, getWorkspaceState, NotFoundError, resetExample, seedExample, updateAssumptions, updateStep } from "./repo";
+import { addComment, importMap, resolveComment, addEdge, addStep, removeEdge, removeStep, restoreStep, approveBaseline, clearActuals, importActuals, listActivity, listBaselines, ConflictError, ensureAdvisor, EXAMPLE_WORKSPACE as WS, getWorkspaceState, NotFoundError, resetExample, seedExample, updateAssumptions, updateStep } from "./repo";
 import { computeValueCase } from "@/domain/value-model";
 import { customerService } from "@/templates";
 
@@ -230,5 +230,50 @@ describe("editing the process map", () => {
     expect(after.baseline!.steps.find((s) => s.id === "resolve")?.minutesPerCase).toBe(4);
     expect(after.baseline!.steps.find((s) => s.id === "identify")?.phase).toBe("both");
     expect(computeValueCase(after.baseline!.steps, after.baseline!.design, after.baseline!.assumptions).net).toBeCloseTo(net, 6);
+  });
+});
+
+describe("comments", () => {
+  it("adds comments to a step, resolves and reopens them, with an audit trail", async () => {
+    await addComment(db, WS, "customer-service", "resolve", "Should billing cases stay with people?", advisor);
+    let c = (await cs()).comments;
+    expect(c).toHaveLength(1);
+    expect(c[0]).toMatchObject({ step: "resolve", body: "Should billing cases stay with people?", resolvedAt: null });
+    expect(c[0].author).toBeTruthy();
+    await resolveComment(db, WS, "customer-service", c[0].id, true, advisor);
+    c = (await cs()).comments;
+    expect(c[0].resolvedAt).not.toBeNull();
+    expect(c[0].resolvedBy).toBeTruthy();
+    await resolveComment(db, WS, "customer-service", c[0].id, false, advisor);
+    expect((await cs()).comments[0].resolvedAt).toBeNull();
+    const actions = (await db.select().from(auditLog)).map((a) => a.action);
+    expect(actions).toEqual(expect.arrayContaining(["comment.added", "comment.resolved", "comment.reopened"]));
+  });
+
+  it("refuses comments on unknown steps and unknown comment ids", async () => {
+    await expect(addComment(db, WS, "customer-service", "nope", "x", advisor)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(resolveComment(db, WS, "customer-service", "00000000-0000-0000-0000-000000000000", true, advisor)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("refuses an empty comment at the database level", async () => {
+    await expect(addComment(db, WS, "customer-service", "resolve", "", advisor)).rejects.toThrow();
+  });
+});
+
+describe("importMap", () => {
+  it("adds steps after the existing ones and the arrows between them, all at once", async () => {
+    const before = await cs();
+    const fit = { volume: "high", ruleBased: "high", dataReady: "medium", errorRisk: "low" } as const;
+    const keys = await importMap(db, WS, "customer-service", [
+      { name: "Register invoice", view: "as-is", description: "", minutesPerCase: 3, caseShare: 100, fit },
+      { name: "Match to order", view: "as-is", description: "", minutesPerCase: 4, caseShare: 90, fit },
+    ], [[0, 1]], advisor);
+    const after = await cs();
+    expect(after.steps).toHaveLength(before.steps.length + 2);
+    const added = after.steps.filter((s) => keys.includes(s.id));
+    expect(added.map((s) => s.phase)).toEqual(["both", "both"]);
+    expect(Math.min(...added.map((s) => s.x ?? 0))).toBeGreaterThan(Math.max(...before.steps.map((s) => s.x ?? 0)));
+    expect(after.edges.some((e) => e.from === keys[0] && e.to === keys[1])).toBe(true);
+    expect(added[1].caseShare).toBe(90);
   });
 });

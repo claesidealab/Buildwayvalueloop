@@ -5,12 +5,12 @@
  */
 import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import type { DB } from "./db";
-import { actuals, auditLog, baselines, designSteps, designs, memberships, processEdges, processes, steps, strategyPlans, users, workspaces } from "./db/schema";
+import { actuals, auditLog, baselines, designSteps, designs, memberships, processEdges, processes, stepComments, steps, strategyPlans, users, workspaces } from "./db/schema";
 import { summariseActuals, type ActualPoint } from "@/domain/actuals";
 import { effectiveStage, gateFromRealised, measureBasis } from "@/domain/progress";
 import type { Assumptions, AutonomyLevel, Baseline, FitFactors, ProcessDesign, ProcessEdge, Stage, StepDefinition, StepPhase } from "@/domain/types";
 import { computeValueCase } from "@/domain/value-model";
-import type { AssumptionsPatch, NewStep, ProcessInstance, StepPatch, WorkspaceState } from "@/lib/api-types";
+import type { AssumptionsPatch, NewStep, ProcessInstance, StepComment, StepPatch, WorkspaceState } from "@/lib/api-types";
 import { customerService } from "@/templates";
 
 export class NotFoundError extends Error {}
@@ -110,6 +110,12 @@ export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<Wo
       .filter((e) => liveIds.has(e.fromStepId) && liveIds.has(e.toStepId))
       .map((e) => ({ id: e.id, from: keyOfStep.get(e.fromStepId)!, to: keyOfStep.get(e.toStepId)!, ...(e.label ? { label: e.label } : {}) }));
 
+    const commentRows = await db.select().from(stepComments).where(and(eq(stepComments.workspaceId, ws.id), eq(stepComments.processId, p.id))).orderBy(asc(stepComments.createdAt));
+    const comments: StepComment[] = commentRows.filter((c) => keyOfStep.has(c.stepId)).map((c) => ({
+      id: c.id, step: keyOfStep.get(c.stepId)!, author: c.authorName, body: c.body, createdAt: c.createdAt.toISOString(),
+      resolvedAt: c.resolvedAt ? c.resolvedAt.toISOString() : null, resolvedBy: c.resolvedBy,
+    }));
+
     // Stage and light follow what has happened: steps mapped, baseline approved, actuals uploaded.
     const assumptions = draft?.assumptions ?? customerService.defaultAssumptions;
     const hasActuals = actualPoints.some((a) => a.metric === "hours_released");
@@ -122,7 +128,7 @@ export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<Wo
       id: p.slug, name: p.name, templateId: p.templateId, templateVersion: p.templateVersion, unit: p.unit,
       stage: effectiveStage(toStage(p.stage), { stepCount: stepDefs.length, hasBaseline: !!baseline, hasActuals }),
       gate: gateFromRealised(p.gate, realisedShare), note: p.note, steps: stepDefs, design,
-      assumptions, baseline, actuals: actualPoints, edges, hasDraft: !!draft,
+      assumptions, baseline, actuals: actualPoints, edges, hasDraft: !!draft, comments,
     });
   }
   return { workspace: { id: ws.slug, name: ws.name, isExample: ws.isExample }, processes: out };
@@ -198,29 +204,56 @@ const slugify = (name: string) =>
 const DEFAULT_FIT: FitFactors = { volume: "medium", ruleBased: "medium", dataReady: "medium", errorRisk: "medium" };
 
 /** Adds a step. In the to-be view it is new in the redesign; in the as-is view it exists in both. Returns its key. */
+async function insertStep(tx: Tx, ws: { id: string }, p: { id: string }, draftId: string, processSlug: string, input: NewStep, actorId: string | null): Promise<string> {
+  const existing = await tx.select({ key: steps.key, position: steps.position, posX: steps.posX }).from(steps).where(eq(steps.processId, p.id));
+  const taken = new Set(existing.map((s) => s.key));
+  const base = slugify(input.name);
+  let key = base;
+  for (let n = 2; taken.has(key); n++) key = `${base}-${n}`;
+  const position = existing.reduce((m, s) => Math.max(m, s.position), -1) + 1;
+  const x = input.x ?? existing.reduce((m, s) => Math.max(m, s.posX), -220) + 220;
+  const phase: StepPhase = input.view === "to-be" ? "to-be" : "both";
+  const fit = { ...DEFAULT_FIT, ...input.fit };
+  const [row] = await tx.insert(steps).values({
+    workspaceId: ws.id, processId: p.id, key, name: input.name, description: input.description ?? "", position, posX: x,
+    minutesPerCase: input.minutesPerCase ?? 1, caseShare: input.caseShare ?? 100, phase,
+    fitVolume: fit.volume, fitRuleBased: fit.ruleBased, fitDataReady: fit.dataReady, fitErrorRisk: fit.errorRisk,
+  }).returning();
+  const autonomy = input.autonomy ?? 0;
+  await tx.insert(designSteps).values({ designId: draftId, stepId: row.id, autonomy, isSystem: autonomy >= 4 && !!input.isSystem });
+  await audit(tx, ws.id, actorId, "step.added", { process: processSlug, step: key, name: input.name, phase });
+  return key;
+}
+
 export async function addStep(db: DB, wsSlug: string, processSlug: string, input: NewStep, actorId: string | null): Promise<string> {
   return db.transaction(async (tx) => {
     const ws = await workspaceBySlug(tx, wsSlug);
     const p = await processBySlug(tx, ws.id, processSlug);
     const draft = await draftOf(tx, ws.id, p.id);
-    const existing = await tx.select({ key: steps.key, position: steps.position, posX: steps.posX }).from(steps).where(eq(steps.processId, p.id));
-    const taken = new Set(existing.map((s) => s.key));
-    const base = slugify(input.name);
-    let key = base;
-    for (let n = 2; taken.has(key); n++) key = `${base}-${n}`;
-    const position = existing.reduce((m, s) => Math.max(m, s.position), -1) + 1;
-    const x = input.x ?? existing.reduce((m, s) => Math.max(m, s.posX), -220) + 220;
-    const phase: StepPhase = input.view === "to-be" ? "to-be" : "both";
-    const fit = { ...DEFAULT_FIT, ...input.fit };
-    const [row] = await tx.insert(steps).values({
-      workspaceId: ws.id, processId: p.id, key, name: input.name, description: input.description ?? "", position, posX: x,
-      minutesPerCase: input.minutesPerCase ?? 1, caseShare: input.caseShare ?? 100, phase,
-      fitVolume: fit.volume, fitRuleBased: fit.ruleBased, fitDataReady: fit.dataReady, fitErrorRisk: fit.errorRisk,
-    }).returning();
-    const autonomy = input.autonomy ?? 0;
-    await tx.insert(designSteps).values({ designId: draft.id, stepId: row.id, autonomy, isSystem: autonomy >= 4 && !!input.isSystem });
-    await audit(tx, ws.id, actorId, "step.added", { process: processSlug, step: key, name: input.name, phase });
-    return key;
+    return insertStep(tx, ws, p, draft.id, processSlug, input, actorId);
+  });
+}
+
+/**
+ * Adds several steps and the arrows between them in one go, after any steps already on the map
+ * (used for an AI-drafted as-is map and for BPMN import). `edges` refer to positions in `input`.
+ * All or nothing.
+ */
+export async function importMap(db: DB, wsSlug: string, processSlug: string, input: NewStep[], edges: Array<[number, number]>, actorId: string | null): Promise<string[]> {
+  return db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const draft = await draftOf(tx, ws.id, p.id);
+    const keys: string[] = [];
+    for (const step of input) keys.push(await insertStep(tx, ws, p, draft.id, processSlug, step, actorId));
+    const rows = await tx.select({ id: steps.id, key: steps.key }).from(steps).where(eq(steps.processId, p.id));
+    const idOf = new Map(rows.map((r) => [r.key, r.id]));
+    for (const [a, b] of edges) {
+      if (a === b || !keys[a] || !keys[b]) continue;
+      await tx.insert(processEdges).values({ workspaceId: ws.id, processId: p.id, fromStepId: idOf.get(keys[a])!, toStepId: idOf.get(keys[b])! }).onConflictDoNothing();
+    }
+    await audit(tx, ws.id, actorId, "map.imported", { process: processSlug, steps: keys.length, edges: edges.length });
+    return keys;
   });
 }
 
@@ -254,6 +287,33 @@ export async function restoreStep(db: DB, wsSlug: string, processSlug: string, s
     if (step.phase !== "as-is") throw new ConflictError(`${step.name} is already in the redesign`);
     await tx.update(steps).set({ phase: "both" }).where(eq(steps.id, step.id));
     await audit(tx, ws.id, actorId, "step.restored", { process: processSlug, step: stepKey, name: step.name });
+  });
+}
+
+/* ---------- comments ---------- */
+
+export async function addComment(db: DB, wsSlug: string, processSlug: string, stepKey: string, body: string, actorId: string) {
+  await db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const step = await stepByKey(tx, p.id, stepKey);
+    const [who] = await tx.select({ name: users.name }).from(users).where(eq(users.id, actorId));
+    await tx.insert(stepComments).values({ workspaceId: ws.id, processId: p.id, stepId: step.id, authorId: actorId, authorName: who?.name ?? "Unknown", body });
+    await audit(tx, ws.id, actorId, "comment.added", { process: processSlug, step: stepKey });
+  });
+}
+
+/** Marks a comment resolved (or open again). */
+export async function resolveComment(db: DB, wsSlug: string, processSlug: string, commentId: string, resolved: boolean, actorId: string) {
+  await db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const [who] = await tx.select({ name: users.name }).from(users).where(eq(users.id, actorId));
+    const done = await tx.update(stepComments)
+      .set(resolved ? { resolvedAt: new Date(), resolvedBy: who?.name ?? "Unknown" } : { resolvedAt: null, resolvedBy: null })
+      .where(and(eq(stepComments.workspaceId, ws.id), eq(stepComments.processId, p.id), eq(stepComments.id, commentId))).returning({ id: stepComments.id });
+    if (!done.length) throw new NotFoundError("Comment not found");
+    await audit(tx, ws.id, actorId, resolved ? "comment.resolved" : "comment.reopened", { process: processSlug, comment: commentId });
   });
 }
 

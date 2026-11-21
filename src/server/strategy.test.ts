@@ -106,3 +106,42 @@ describe("AI discovery", () => {
     await expect(discoverFlows("Some text about the company and its processes.", [], fake)).rejects.toThrow(/declined/);
   });
 });
+
+import { draftMap, toMapDraft, type Draft } from "./process-draft";
+
+describe("AI-drafted as-is map", () => {
+  const fit = { volume: "high", ruleBased: "medium", dataReady: "medium", errorRisk: "low" } as const;
+  const answer: Draft = {
+    unit: " invoice ",
+    steps: [
+      { name: "Receive invoice", description: "Arrives by email.", minutesPerCase: 1, caseShare: 100, fit, note: "" },
+      { name: "Check", description: "Match to order.", minutesPerCase: 5000, caseShare: 140, fit, note: "Estimate" },
+      { name: "Approve", description: "Manager approves.", minutesPerCase: 2, caseShare: 30, fit, note: "" },
+    ],
+    branches: [{ from: 0, to: 2 }, { from: 1, to: 1 }, { from: 0, to: 9 }],
+  };
+
+  it("cleans the draft and adds the sequence plus valid branches", () => {
+    const d = toMapDraft(answer);
+    expect(d.unit).toBe("invoice");
+    expect(d.steps[1]).toMatchObject({ minutesPerCase: 1440, caseShare: 100 });
+    expect(d.edges).toEqual([[0, 1], [1, 2], [0, 2]]);
+  });
+
+  it("calls Claude with the material and returns the cleaned draft", async () => {
+    let sent: { model: string; messages: Array<{ content: unknown }> } | undefined;
+    const fake = { beta: { messages: { parse: async (params: never) => { sent = params; return { stop_reason: "end_turn", parsed_output: answer }; } } } } as unknown as DiscoveryClient;
+    const d = await draftMap("Invoices arrive by email and are checked against the order.", "Invoice handling", fake);
+    expect(d.steps).toHaveLength(3);
+    expect(sent!.model).toBe("claude-opus-5-5");
+    expect(String(sent!.messages[0].content)).toContain("Invoice handling");
+  });
+
+  it("explains how to turn it on without a key", async () => {
+    const key = process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_API_KEY;
+    const tok = process.env.ANTHROPIC_AUTH_TOKEN; delete process.env.ANTHROPIC_AUTH_TOKEN;
+    await expect(draftMap("x".repeat(50), "P")).rejects.toThrow(/ANTHROPIC_API_KEY/);
+    if (key) process.env.ANTHROPIC_API_KEY = key;
+    if (tok) process.env.ANTHROPIC_AUTH_TOKEN = tok;
+  });
+});

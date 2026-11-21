@@ -188,3 +188,17 @@ export const strategyPlans = pgTable("strategy_plans", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
 });
+
+/** Discussion on a process step, so a redesign can be agreed between workshops. */
+export const stepComments = pgTable("step_comments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  processId: uuid("process_id").notNull().references(() => processes.id, { onDelete: "cascade" }),
+  stepId: uuid("step_id").notNull().references(() => steps.id, { onDelete: "cascade" }),
+  authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+  authorName: text("author_name").notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  resolvedBy: text("resolved_by"),
+}, (t) => [check("step_comments_body_len", sql`char_length(${t.body}) between 1 and 2000`)]);

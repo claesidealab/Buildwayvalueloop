@@ -112,12 +112,12 @@ Agent fit (`src/domain/fit.ts`) scores 0–100 from four ratings (volume, rule-b
 - **Developer sign-in:** signs in as an existing example user; on by default only outside production.
 - **CSRF:** cookies are `SameSite=Lax`, and `src/middleware.ts` refuses non-GET API calls whose `Origin` is another site.
 
-| Role | Read | Edit designs and assumptions | Upload actuals | Approve baselines | Manage members | Edit strategy | Reset example |
-|---|---|---|---|---|---|---|---|
-| Viewer | ✓ | | | | | | |
-| Process owner | ✓ | ✓ | ✓ | | | | |
-| Admin (customer) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
-| Buildway advisor | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Role | Read | Comment on steps | Edit designs and assumptions | Upload actuals | Approve baselines | Manage members | Edit strategy | Reset example |
+|---|---|---|---|---|---|---|---|---|
+| Viewer | ✓ | ✓ | | | | | | |
+| Process owner | ✓ | ✓ | ✓ | ✓ | | | | |
+| Admin (customer) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| Buildway advisor | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 Permissions live in `src/domain/permissions.ts`. Every API route calls `guard(workspace, permission)` in `src/server/http.ts`, which signs the user in from the cookie and checks the role. The UI hides or disables what the role can't do, but the server is what enforces it. A workspace always keeps at least one admin or advisor.
 
@@ -135,6 +135,8 @@ Permissions live in `src/domain/permissions.ts`. Every API route calls `guard(wo
 - Designs: each process has one mutable **draft** design (enforced by a partial unique index). Approving a baseline copies the draft into a new immutable **approved** design and records the baseline with the value computed on the server. The client never sends the value.
 - Process map: steps have a canvas position (`pos_x`, also their order), a share of cases and a phase (`both`, `as-is` = removed in the redesign, `to-be` = new in the redesign). Arrows are rows in `process_edges`. Deleting a step archives it (`archived_at`) so baselines and uploaded figures that use it still resolve. Approved designs store a snapshot of the step definitions they were valued with (`designs.steps_snapshot`), so later edits never change an approved baseline.
 - Canvas: `src/components/ProcessCanvas.tsx` (React Flow). Lanes are bands of autonomy: dropping a step in the Human lane caps it at L2, the AI agent lane makes it at least L3, the System lane makes it an L4 rule-based system (`levelForLane` in `src/domain/autonomy.ts`).
+- Comments: `step_comments` holds discussion per step (author name kept if the user is removed), resolved or open. They come with the process in the workspace state and show on the canvas as a count of open comments.
+- Map import: `importMap` adds several steps and arrows in one transaction, after the steps already on the map. Used for the AI-drafted as-is map (`src/server/process-draft.ts`, Claude with structured output, reviewed before adding) and BPMN files.
 - Every change writes an `audit_log` row: design edits, assumptions, baselines, uploads, and member and workspace changes. The History page shows them in plain language.
 - The example workspace (`acme-support`) is seeded on first request and can be reset; real workspaces cannot.
 
@@ -157,6 +159,10 @@ Workspace calls return the full workspace state (`WorkspaceState` in `src/lib/ap
 | POST | `/api/workspaces/:ws/processes/:process/steps/:step/restore` | – | design.edit |
 | POST, DELETE | `/api/workspaces/:ws/processes/:process/edges[/:id]` | POST `{ from, to }` | design.edit |
 | PATCH | `/api/workspaces/:ws/processes/:process/assumptions` | any subset of `Assumptions` | design.edit |
+| POST | `/api/workspaces/:ws/processes/:process/comments` | `{ step, body }` | design.comment |
+| PATCH | `/api/workspaces/:ws/processes/:process/comments/:id` | `{ resolved }` | design.comment |
+| POST | `/api/workspaces/:ws/processes/:process/draft` | `{ text }`: Claude drafts today's steps; nothing is saved (503 without `ANTHROPIC_API_KEY`) | design.edit |
+| POST | `/api/workspaces/:ws/processes/:process/import` | `{ steps, edges }`: add reviewed steps and arrows at once | design.edit |
 | POST | `/api/workspaces/:ws/processes/:process/baselines` | – | baseline.approve |
 | POST | `/api/workspaces/:ws/reset` | – (example workspaces only) | workspace.reset |
 | GET, POST | `/api/workspaces/:ws/members` | POST `{ email, role }` | read / members.manage |

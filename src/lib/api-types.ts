@@ -23,6 +23,19 @@ export interface ProcessInstance {
   edges: ProcessEdge[];
   /** True when the process has a design to edit (it can be mapped, even with no steps yet). */
   hasDraft: boolean;
+  /** Discussion on steps, oldest first. */
+  comments: StepComment[];
+}
+
+export interface StepComment {
+  id: string;
+  /** Step key. */
+  step: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
 }
 
 export interface WorkspaceState {

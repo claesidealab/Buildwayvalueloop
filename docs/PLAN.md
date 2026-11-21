@@ -75,7 +75,8 @@ Land with advisory, expand with licences, retain with managed services.
 - [x] Drag-and-drop process map: move steps and change lanes, draw arrows, add, edit and remove steps, share of cases per step, as-is and to-be can differ
 - [x] Postgres persistence and API, with audit log and server-computed baselines
 - [x] Sign-in (Microsoft, Google, developer sign-in), workspaces, roles and invitations
-- [ ] Draft an as-is map from SOPs and interview notes with Claude
+- [x] Draft an as-is map from SOPs and interview notes with Claude (reviewed before it is added)
+- [x] Comments on steps, resolved or open, for everyone in the workspace
 - [x] Actuals via CSV upload
 - [ ] First connector (Zendesk or ServiceNow)
 - [x] Baseline history and activity log

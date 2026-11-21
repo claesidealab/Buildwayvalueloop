@@ -33,11 +33,11 @@ const TO_BE_LANES: Array<{ lane: Lane; label: string }> = [
 ];
 const AS_IS_LANES: Array<{ lane: Lane; label: string }> = [{ lane: "human", label: "People, today" }];
 
-type StepData = { step: StepDefinition; level: AutonomyLevel; lane: Lane; isNew: boolean; tobe: boolean; editable: boolean };
+type StepData = { step: StepDefinition; level: AutonomyLevel; lane: Lane; isNew: boolean; tobe: boolean; editable: boolean; comments: number };
 type LaneData = { label: string; lane: Lane; width: number };
 
 function StepNode({ data, selected }: NodeProps<Node<StepData>>) {
-  const { step, level, lane, isNew, tobe, editable } = data;
+  const { step, level, lane, isNew, tobe, editable, comments } = data;
   const share = step.caseShare ?? 100;
   return (
     <div className={`pnode s-${tobe ? lane : "human"} ${selected ? "sel" : ""}`} style={{ width: NODE_W, minHeight: NODE_H }}>
@@ -45,6 +45,7 @@ function StepNode({ data, selected }: NodeProps<Node<StepData>>) {
       <div className="pnode-top">
         <b>{tobe ? `L${level}` : "Today"}</b>
         {isNew && <span className="pnode-new">New</span>}
+        {comments > 0 && <span className="pnode-comments" title={`${comments} open comment${comments === 1 ? "" : "s"}`} aria-label={`${comments} open comments`}>{comments}</span>}
       </div>
       <span className="pnode-name">{step.name}</span>
       <span className="pnode-meta">{step.minutesPerCase.toFixed(1)} min{share < 100 ? ` · ${share}% of cases` : ""}</span>
@@ -93,7 +94,7 @@ function Canvas({ process, value, view, editable, selected, onSelect, onPatch, o
       const li = Math.max(0, lanes.findIndex((l) => l.lane === lane));
       return {
         id: s.id, type: "step", position: { x: s.x ?? 0, y: li * LANE_H + (LANE_H - NODE_H) / 2 },
-        data: { step: s, level: levelOf(s.id), lane, isNew: tobe && s.phase === "to-be", tobe, editable },
+        data: { step: s, level: levelOf(s.id), lane, isNew: tobe && s.phase === "to-be", tobe, editable, comments: process.comments.filter((c) => c.step === s.id && !c.resolvedAt).length },
         selected: s.id === selected, draggable: editable, connectable: editable,
       };
     });

@@ -11,6 +11,8 @@ import type { AutonomyLevel, FitFactors, Rating, StepDefinition } from "@/domain
 import { PageHead } from "@/components/ui";
 import { NotFound } from "@/components/NotFound";
 import { ProcessCanvas } from "@/components/ProcessCanvas";
+import { StepComments } from "@/components/StepComments";
+import { MapDraft } from "@/components/MapDraft";
 
 const FIT_LABELS: Array<[keyof FitFactors, string]> = [["volume", "Volume"], ["ruleBased", "Rule-based"], ["dataReady", "Data ready"], ["errorRisk", "Error risk"]];
 const RATINGS: Rating[] = ["low", "medium", "high"];
@@ -41,7 +43,7 @@ function Field({ id, label, value, onSave, type = "text", disabled, suffix, min,
 
 export default function MapPage({ params }: { params: Promise<{ processId: string }> }) {
   const { processId } = use(params);
-  const { process, value, loading, can, path, patchStep, addStep, removeStep, restoreStep, addEdge, removeEdge } = useProcess(processId);
+  const { process, value, loading, can, path, slug, patchStep, addStep, removeStep, restoreStep, addEdge, removeEdge, addComment, resolveComment, importMap } = useProcess(processId);
   const initial = useSearchParams().get("step");
   const [view, setView] = useState<"as-is" | "to-be">("to-be");
   const [sel, setSel] = useState<string | null>(initial ?? "resolve");
@@ -60,9 +62,11 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
   const perYear = process.assumptions.casesPerMonth * 12;
   const num = (v: string, fallback: number) => { const n = Number(v.replace(",", ".")); return Number.isFinite(n) ? n : fallback; };
 
+  // A new step goes after the selected one and is joined to it with an arrow.
   const onAdd = async () => {
-    const id = await addStep(process.id, { name: "New step", view, minutesPerCase: 1, autonomy: 0 });
-    if (id) setSel(id);
+    const after = step;
+    const id = await addStep(process.id, { name: "New step", view, minutesPerCase: 1, autonomy: 0, ...(after ? { x: (after.x ?? 0) + 220 } : {}) });
+    if (id) { setSel(id); if (after) addEdge(process.id, after.id, id); }
   };
 
   return (
@@ -76,11 +80,13 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
               <button aria-pressed={!tobe} onClick={() => setView("as-is")}>As-is</button>
               <button aria-pressed={tobe} onClick={() => setView("to-be")}>To-be</button>
             </div>
-            {editable && <button className="btn btn-sm" onClick={onAdd}>+ Add step</button>}
+            {editable && <button className="btn btn-sm" onClick={onAdd} title={step ? `Adds a step after ${step.name}` : undefined}>+ Add step</button>}
             <div className="key">
               {tobe ? <><span><i className="dot d-run" />Human</span><span><i className="dot d-build" />AI agent</span><span><i className="dot d-find" />System</span></> : <span>Today, people do every step</span>}
             </div>
           </div>
+          {editable && !tobe && <div style={{ marginBottom: 12 }}><MapDraft apiBase={`/api/workspaces/${slug}/processes/${process.id}`} processName={process.name} hasSteps={process.steps.length > 0} onImport={(b) => importMap(process.id, b)} /></div>}
+          {editable && tobe && process.steps.length === 0 && <p className="muted">Start in the As-is view: map today&apos;s process by hand or draft it from documents.</p>}
           <p className="muted canvas-hint">Scroll or drag the background to move around; the corner button fits the whole process.</p>
           <ProcessCanvas
             process={process} value={value} view={view} editable={editable} selected={step?.id ?? null}
@@ -168,6 +174,9 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
                   ))}
                 </div>
               </details>
+
+              <StepComments comments={process.comments.filter((c) => c.step === step.id)} canComment={can("design.comment")}
+                onAdd={(body) => addComment(process.id, step.id, body)} onResolve={(id, r) => resolveComment(process.id, id, r)} />
 
               {editable && (
                 confirmRemove ? (

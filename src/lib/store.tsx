@@ -39,6 +39,15 @@ interface Store {
   restoreStep: (processId: string, stepId: string) => void;
   addEdge: (processId: string, from: string, to: string) => void;
   removeEdge: (processId: string, edgeId: string) => void;
+  addComment: (processId: string, step: string, body: string) => Promise<boolean>;
+  resolveComment: (processId: string, commentId: string, resolved: boolean) => void;
+  /** Add reviewed steps and arrows in one go (AI draft or BPMN file). */
+  importMap: (processId: string, body: MapImport) => Promise<boolean>;
+}
+
+export interface MapImport {
+  steps: Array<{ name: string; description: string; minutesPerCase: number; caseShare: number; fit: import("@/domain/types").FitFactors }>;
+  edges: Array<[number, number]>;
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -160,6 +169,18 @@ export function WorkspaceProvider({ slug, children }: { slug: string; children: 
       ),
     removeEdge: (pid, edgeId) =>
       mutate(patchProcess(pid, (p) => ({ ...p, edges: p.edges.filter((e) => e.id !== edgeId) })), () => call("DELETE", `${base}/processes/${pid}/edges/${edgeId}`)),
+    addComment: async (pid, step, body) => {
+      try { const server = await call("POST", `${base}/processes/${pid}/comments`, { step, body }); seq.current++; setState(server); return true; }
+      catch (e) { setError(`Could not add the comment: ${(e as Error).message}`); return false; }
+    },
+    resolveComment: (pid, id, resolved) => mutate(
+      patchProcess(pid, (p) => ({ ...p, comments: p.comments.map((c) => (c.id === id ? { ...c, resolvedAt: resolved ? new Date().toISOString() : null } : c)) })),
+      () => call("PATCH", `${base}/processes/${pid}/comments/${id}`, { resolved }),
+    ),
+    importMap: async (pid, body) => {
+      try { const server = await call("POST", `${base}/processes/${pid}/import`, body); seq.current++; setState(server); return true; }
+      catch (e) { setError(`Could not add the steps: ${(e as Error).message}`); return false; }
+    },
   }), [slug, base, state, error, pending, mutate]);
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
