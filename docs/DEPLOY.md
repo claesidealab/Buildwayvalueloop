@@ -11,6 +11,14 @@ A review link needs two things: somewhere to run the app (Vercel) and a hosted P
 
 Tables are created automatically on the first request.
 
+### Or: Supabase
+
+Supabase is plain Postgres and works the same way:
+
+1. Create a **new project** for Value Loop (EU region). Don't reuse a project that has its own tables: Value Loop creates `users`, `workspaces`, `sessions` and others in the `public` schema.
+2. **Connect → Session pooler**: copy that connection string (host `aws-0-<region>.pooler.supabase.com`, port 5432). Don't use "Direct connection": it is IPv6-only and Vercel can't reach it.
+3. Use it as `DATABASE_URL`. Value Loop only uses the database, not Supabase Auth or Storage.
+
 ## 2. App: Vercel
 
 1. Sign up at vercel.com with GitHub.
