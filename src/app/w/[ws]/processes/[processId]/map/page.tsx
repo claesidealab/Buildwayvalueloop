@@ -13,6 +13,7 @@ import { NotFound } from "@/components/NotFound";
 import { ProcessCanvas } from "@/components/ProcessCanvas";
 import { StepComments } from "@/components/StepComments";
 import { MapDraft } from "@/components/MapDraft";
+import { exportBpmn, parseBpmn } from "@/domain/bpmn";
 
 const FIT_LABELS: Array<[keyof FitFactors, string]> = [["volume", "Volume"], ["ruleBased", "Rule-based"], ["dataReady", "Data ready"], ["errorRisk", "Error risk"]];
 const RATINGS: Rating[] = ["low", "medium", "high"];
@@ -48,6 +49,7 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
   const [view, setView] = useState<"as-is" | "to-be">("to-be");
   const [sel, setSel] = useState<string | null>(initial ?? "resolve");
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [bpmnMsg, setBpmnMsg] = useState<string | null>(null);
   useEffect(() => setConfirmRemove(false), [sel, view]);
   if (loading) return null;
   if (!process || !value) return <NotFound />;
@@ -61,6 +63,29 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
   const added = process.steps.filter((s) => s.phase === "to-be");
   const perYear = process.assumptions.casesPerMonth * 12;
   const num = (v: string, fallback: number) => { const n = Number(v.replace(",", ".")); return Number.isFinite(n) ? n : fallback; };
+
+  const downloadBpmn = () => {
+    const items = process.steps.filter(inView).map((st) => {
+      const v = value.steps.find((x) => x.step.id === st.id);
+      return { step: st, lane: tobe && v ? v.lane : ("human" as const), level: tobe && v ? v.level : 0 };
+    });
+    const xml = exportBpmn(process.name, items, process.edges, view);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([xml], { type: "application/xml" }));
+    a.download = `${process.id}-${tobe ? "redesign" : "today"}.bpmn`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  const uploadBpmn = async (f: File | undefined) => {
+    if (!f) return;
+    setBpmnMsg(null);
+    try {
+      const r = parseBpmn(await f.text());
+      const fit = { volume: "medium", ruleBased: "medium", dataReady: "medium", errorRisk: "medium" } as const;
+      const ok = await importMap(process.id, { steps: r.steps.map((st) => ({ ...st, fit })), edges: r.edges });
+      if (ok) setBpmnMsg(`Added ${r.steps.length} steps and ${r.edges.length} arrows from ${f.name}${r.skipped ? `; ${r.skipped} more tasks were left out (limit 40)` : ""}. Check times and agent fit.`);
+    } catch (e) { setBpmnMsg((e as Error).message); }
+  };
 
   // A new step goes after the selected one and is joined to it with an arrow.
   const onAdd = async () => {
@@ -81,10 +106,18 @@ export default function MapPage({ params }: { params: Promise<{ processId: strin
               <button aria-pressed={tobe} onClick={() => setView("to-be")}>To-be</button>
             </div>
             {editable && <button className="btn btn-sm" onClick={onAdd} title={step ? `Adds a step after ${step.name}` : undefined}>+ Add step</button>}
+            <button className="btn btn-sm" onClick={downloadBpmn} title="BPMN 2.0, opens in Signavio, Camunda, Bizagi and others">Export BPMN</button>
+            {editable && !tobe && (
+              <>
+                <label className="btn btn-sm" htmlFor="bpmn-file" style={{ cursor: "pointer" }}>Import BPMN</label>
+                <input id="bpmn-file" type="file" accept=".bpmn,.xml" className="sr-only" onChange={(e) => { void uploadBpmn(e.target.files?.[0]); e.target.value = ""; }} />
+              </>
+            )}
             <div className="key">
               {tobe ? <><span><i className="dot d-run" />Human</span><span><i className="dot d-build" />AI agent</span><span><i className="dot d-find" />System</span></> : <span>Today, people do every step</span>}
             </div>
           </div>
+          {bpmnMsg && <p className="muted" role="status" style={{ fontSize: 13 }}>{bpmnMsg}</p>}
           {editable && !tobe && <div style={{ marginBottom: 12 }}><MapDraft apiBase={`/api/workspaces/${slug}/processes/${process.id}`} processName={process.name} hasSteps={process.steps.length > 0} onImport={(b) => importMap(process.id, b)} /></div>}
           {editable && tobe && process.steps.length === 0 && <p className="muted">Start in the As-is view: map today&apos;s process by hand or draft it from documents.</p>}
           <p className="muted canvas-hint">Scroll or drag the background to move around; the corner button fits the whole process.</p>

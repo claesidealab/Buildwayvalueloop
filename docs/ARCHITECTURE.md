@@ -115,6 +115,22 @@ OTLP/JSON import   = spans matched by gen_ai.agent.name (or gen_ai.agent.id, val
   success_rate     = runs without status ERROR ÷ runs; escalation_rate = runs with valueloop.escalated ÷ runs
 ```
 
+Simulation (`src/domain/simulation.ts`, covered by `simulation.test.ts`):
+
+```
+people's minutes per case  today = Σ today's steps of minutes × share
+                           after = Σ redesigned steps of minutes × share × (1 − automated)
+                                   + Σ agent steps of minutes × share × automated × hand-back rate
+arrivals / hour            = cases per month × (1 + peak) ÷ (21 days × 8 hours)
+load (Erlangs)             = arrivals / hour × minutes per case ÷ 60
+average wait               = Erlang C(load, people) × minutes per case ÷ (people − load); unstable if load ≥ people
+within target              = 1 − Erlang C × e^(−(people − load) × target ÷ minutes per case)
+value range                = P10 / P50 / P90 of 1,000 seeded runs: agent quality ±10 points, volume ±15%,
+                             hand-backs ±50%; each run = value case net − hand-back hours × cost per hour
+```
+
+BPMN (`src/domain/bpmn.ts`, covered by `bpmn.test.ts`): export writes one process with a lane per actor, a userTask (people) or serviceTask (agents, systems) per step with minutes, case share and autonomy as `vl:` attributes and documentation, the map's arrows as sequence flows, and diagram positions. Import reads every task-like element as a step (ordered by diagram x), and joins steps through gateways and events.
+
 Agent fit (`src/domain/fit.ts`) scores 0–100 from four ratings (volume, rule-based, data ready, error risk) and suggests a level. High error risk caps the suggestion at L2.
 
 ## Sign-in, workspaces and roles

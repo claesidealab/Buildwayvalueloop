@@ -19,8 +19,10 @@ Phase 1 groundwork. What works today:
 | Domain model and value model | Done, with unit tests (`src/domain`) |
 | Customer service template v1 | Done (`src/templates`) |
 | Overview, templates, redesign canvas, agent fit, value case, monitor | Working screens |
-| Process map editor | Done: drag and drop between lanes, draw arrows, add, edit and remove steps |
-| Strategy | Done: flow discovery (with AI), scenarios with cost and value per year, gates, ambition and decisions |
+| Process map editor | Done: drag and drop between lanes, draw arrows, add, edit and remove steps, comments per step, as-is draft from documents with Claude, BPMN import and export |
+| Strategy | Done: flow discovery (with AI) and value-against-ease matrix, scenarios with cost and value per year, what-if drivers and sensitivity, gates measured against actuals, ambition, decisions, board pack |
+| Agents | Done: registry across processes (owner, platform, status, risk, budget), cost per agent, telemetry import from OpenTelemetry |
+| Simulation | Done: people's queue before and after (Erlang C) and a Monte Carlo value range |
 | Database and API | Done: Postgres via Drizzle, migrations, REST API, audit log, tests |
 | Sign-in, workspaces and roles | Done: Microsoft and Google sign-in, sessions, four roles, invitations, members page |
 | Monitoring actuals | Done: CSV upload with per-line validation; monitor and overview use real figures (example data only until the first upload) |

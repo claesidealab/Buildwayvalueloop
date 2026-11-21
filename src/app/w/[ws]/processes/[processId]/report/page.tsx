@@ -7,6 +7,8 @@ import { computeValueCase, formatInt, formatMSEK } from "@/domain/value-model";
 import { summariseActuals } from "@/domain/actuals";
 import { AUTONOMY_LEVELS } from "@/domain/autonomy";
 import { NotFound } from "@/components/NotFound";
+import { measureBasis } from "@/domain/progress";
+import { useStrategy } from "@/lib/strategy-store";
 
 const date = (iso: string | Date) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
@@ -14,6 +16,7 @@ const date = (iso: string | Date) => new Date(iso).toLocaleDateString("en-GB", {
 export default function ReportPage({ params }: { params: Promise<{ processId: string }> }) {
   const { processId } = use(params);
   const { process, state, loading, path } = useProcess(processId);
+  const { plan: strategy } = useStrategy();
   const [which, setWhich] = useState<"baseline" | "draft" | null>(null);
   const version = which ?? (process?.baseline ? "baseline" : "draft");
   const design = version === "baseline" && process?.baseline ? process.baseline.design : process?.design;
@@ -25,7 +28,7 @@ export default function ReportPage({ params }: { params: Promise<{ processId: st
 
   const b = process.baseline;
   const hasHours = process.actuals.some((a) => a.metric === "hours_released");
-  const realised = hasHours ? summariseActuals(process.actuals, { net: b?.net ?? v.net, aiCost: v.aiCost, assumptions }) : null;
+  const realised = hasHours ? summariseActuals(process.actuals, measureBasis(process, strategy)) : null;
   const lane = (l: string, level: number) => (l === "agent" ? "AI agent" : l === "system" ? "System" : level ? "Person with AI help" : "Person");
 
   return (
@@ -112,7 +115,7 @@ export default function ReportPage({ params }: { params: Promise<{ processId: st
         <footer className="report-foot muted">
           How it is calculated: hours released = cases per year × Σ (minutes per step × share automated at its autonomy level) ÷ 60.
           Agent-led steps scale with agent quality. Net value = value of hours − oversight − AI usage − licences.
-          The range is −25% / +15% of the labour benefit until simulation is added. Buildway Value Loop.
+          The range is −25% / +15% of the labour benefit; the value case page also simulates it. Realised value is measured against the plan for each month. Buildway Value Loop.
         </footer>
       </article>
     </>

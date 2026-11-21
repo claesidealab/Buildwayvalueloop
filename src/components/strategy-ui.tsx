@@ -75,6 +75,7 @@ export function StrategyTabs() {
           const active = t.match ? pathname.startsWith(t.match) : pathname === t.href;
           return <Link key={t.label} href={t.href} aria-current={active ? "page" : undefined}>{t.label}</Link>;
         })}
+        <Link href={path("/strategy/board")} aria-current={pathname === path("/strategy/board") ? "page" : undefined}>Board pack</Link>
         <span className="subtabs-status muted" aria-live="polite">{!editable ? "View only" : saving ? "Saving…" : plan ? "All changes saved" : ""}</span>
       </nav>
       {plan?.isExample && <p className="readonly">This is an <b>example plan</b> for a made-up company, based on patterns reported in research and practice. Replace it with your own figures.</p>}

@@ -91,7 +91,7 @@ Land with advisory, expand with licences, retain with managed services.
 - [x] Gates checked against uploaded actuals (suggested met or missed; the room decides)
 - [x] What-if drivers on a scenario (value, timing, ramp, costs) with a sensitivity chart; save as a new scenario
 - [x] Value-against-ease matrix for the flow inventory
-- [ ] Scenario comparison export for the board
+- [x] Board pack: scenarios side by side, chosen plan by year, gates with measured results, ambition and decisions (print or PDF)
 
 ### Agents (pulled forward from phase 3)
 - [x] Agent registry across processes: owner, platform, model, status (with pause), EU AI Act risk class, budget
@@ -99,8 +99,12 @@ Land with advisory, expand with licences, retain with managed services.
 - [x] Telemetry import from OpenTelemetry (OTLP/JSON, GenAI conventions), e.g. exported from Langfuse, LangSmith or Arize
 - [ ] Live telemetry push (OTLP endpoint) instead of file import
 
+### Interoperability and simulation (pulled forward)
+- [x] BPMN 2.0 export and import (Signavio, Camunda, Bizagi, ARIS)
+- [x] Light simulation: people's queue (Erlang C) before and after, and a Monte Carlo value range
+
 ### Phase 2: close the loop (3–6 months after MVP)
-- Simulation of the to-be (queues, escalation, confidence thresholds) replacing the simple range
+- Fuller simulation of the to-be (confidence thresholds per agent, step-level queues)
 - Connectors to agent platforms for agent telemetry (OpenTelemetry GenAI conventions)
 - Value-realisation tracking per step
 - AI cost control, data readiness, workforce view

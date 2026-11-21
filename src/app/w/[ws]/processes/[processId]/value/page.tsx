@@ -7,13 +7,15 @@ import { formatInt, formatMSEK } from "@/domain/value-model";
 import type { Assumptions } from "@/domain/types";
 import { PageHead } from "@/components/ui";
 import { NotFound } from "@/components/NotFound";
+import { Simulation } from "@/components/Simulation";
 
-const SLIDERS: Array<{ key: keyof Assumptions; label: string; min: number; max: number; step: number; unit?: string; scale?: number }> = [
-  { key: "casesPerMonth", label: "Contacts per month", min: 2000, max: 40000, step: 1000 },
+const plural = (u: string) => (u.endsWith("s") ? u : `${u}s`);
+const SLIDERS = (unit: string): Array<{ key: keyof Assumptions; label: string; min: number; max: number; step: number; unit?: string; scale?: number }> => [
+  { key: "casesPerMonth", label: `${plural(unit[0].toUpperCase() + unit.slice(1))} per month`, min: 500, max: 40000, step: 500 },
   { key: "costPerHour", label: "Cost per staff hour (SEK)", min: 250, max: 700, step: 10 },
   { key: "agentQuality", label: "Agent resolution quality", min: 50, max: 95, step: 1, unit: "%" },
   { key: "oversightShare", label: "Human oversight (share of saving)", min: 0, max: 40, step: 1, unit: "%" },
-  { key: "aiCostPerStepCase", label: "AI cost per step and contact (SEK)", min: 0.05, max: 1.5, step: 0.05 },
+  { key: "aiCostPerStepCase", label: `AI cost per step and ${unit} (SEK)`, min: 0.05, max: 1.5, step: 0.05 },
   { key: "fixedCostPerYear", label: "Licences and run (kSEK / yr)", min: 0, max: 1_500_000, step: 50_000, scale: 1000 },
 ];
 
@@ -42,7 +44,7 @@ export default function ValuePage({ params }: { params: Promise<{ processId: str
       <div className="vgrid">
         <section className="panel">
           <div className="panel-h"><h2>Assumptions</h2><span className="example">Template defaults</span></div>
-          {SLIDERS.map((s) => {
+          {SLIDERS(process.unit || "case").map((s) => {
             const raw = process.assumptions[s.key];
             const shown = s.scale ? raw / s.scale : raw;
             return (
@@ -89,10 +91,11 @@ export default function ValuePage({ params }: { params: Promise<{ processId: str
                 </div>
               ))}
             </div>
-            <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>Range: expected value minus 25% and plus 15% of the labour benefit, until simulation replaces it in phase 2.</p>
+            <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>Quick range: expected value minus 25% and plus 15% of the labour benefit. The simulation below gives a range from varying quality, volume and hand-backs.</p>
           </section>
         </div>
       </div>
+      <Simulation steps={process.steps} design={process.design} assumptions={process.assumptions} unit={process.unit || "case"} />
     </>
   );
 }
