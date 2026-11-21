@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { DB } from "./db";
 import { createTestDb } from "./test-db";
 import { auditLog, designSteps, workspaces } from "./db/schema";
-import { addComment, importMap, resolveComment, addEdge, addStep, removeEdge, removeStep, restoreStep, approveBaseline, clearActuals, importActuals, listActivity, listBaselines, ConflictError, ensureAdvisor, EXAMPLE_WORKSPACE as WS, getWorkspaceState, NotFoundError, resetExample, seedExample, updateAssumptions, updateStep } from "./repo";
+import { saveAgent, addComment, importMap, resolveComment, addEdge, addStep, removeEdge, removeStep, restoreStep, approveBaseline, clearActuals, importActuals, listActivity, listBaselines, ConflictError, ensureAdvisor, EXAMPLE_WORKSPACE as WS, getWorkspaceState, NotFoundError, resetExample, seedExample, updateAssumptions, updateStep } from "./repo";
 import { computeValueCase } from "@/domain/value-model";
 import { customerService } from "@/templates";
 
@@ -275,5 +275,30 @@ describe("importMap", () => {
     expect(Math.min(...added.map((s) => s.x ?? 0))).toBeGreaterThan(Math.max(...before.steps.map((s) => s.x ?? 0)));
     expect(after.edges.some((e) => e.from === keys[0] && e.to === keys[1])).toBe(true);
     expect(added[1].caseShare).toBe(90);
+  });
+});
+
+describe("agent registry and telemetry", () => {
+  const rec = { name: "Triage router", platform: "Claude (Anthropic)", owner: "Head of Support", model: "claude-opus-5-5", status: "live" as const, risk: "limited" as const, monthlyBudget: 5000, priceIn: 30, priceOut: 150 };
+
+  it("registers an agent on a step and updates it in place", async () => {
+    await saveAgent(db, WS, "customer-service", "triage", rec, advisor);
+    expect((await cs()).agents).toEqual([{ step: "triage", ...rec }]);
+    await saveAgent(db, WS, "customer-service", "triage", { ...rec, status: "paused" }, advisor);
+    expect((await cs()).agents).toHaveLength(1);
+    expect((await cs()).agents[0].status).toBe("paused");
+  });
+
+  it("refuses an unknown status at the database level", async () => {
+    await expect(saveAgent(db, WS, "customer-service", "triage", { ...rec, status: "dancing" as never }, advisor)).rejects.toThrow();
+  });
+
+  it("keeps the latest import when CSV and telemetry give the same figure, and clears both", async () => {
+    await importActuals(db, WS, "customer-service", [{ period: "2027-01-01", metric: "success_rate", step: "triage", value: 80 }], advisor, "csv");
+    await importActuals(db, WS, "customer-service", [{ period: "2027-01-01", metric: "success_rate", step: "triage", value: 95 }], advisor, "telemetry");
+    const pts = (await cs()).actuals.filter((a) => a.metric === "success_rate");
+    expect(pts).toEqual([{ period: "2027-01-01", metric: "success_rate", step: "triage", value: 95 }]);
+    await clearActuals(db, WS, "customer-service", advisor);
+    expect((await cs()).actuals).toEqual([]);
   });
 });

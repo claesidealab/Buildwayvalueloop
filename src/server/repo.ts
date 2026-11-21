@@ -5,8 +5,9 @@
  */
 import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import type { DB } from "./db";
-import { actuals, auditLog, baselines, designSteps, designs, memberships, processEdges, processes, stepComments, steps, strategyPlans, users, workspaces } from "./db/schema";
+import { actuals, agents, auditLog, baselines, designSteps, designs, memberships, processEdges, processes, stepComments, steps, strategyPlans, users, workspaces } from "./db/schema";
 import { summariseActuals, type ActualPoint } from "@/domain/actuals";
+import type { AgentRecord, AgentRisk, AgentStatus } from "@/domain/agents";
 import { effectiveStage, gateFromRealised, measureBasis } from "@/domain/progress";
 import type { Assumptions, AutonomyLevel, Baseline, FitFactors, ProcessDesign, ProcessEdge, Stage, StepDefinition, StepPhase } from "@/domain/types";
 import { computeValueCase } from "@/domain/value-model";
@@ -101,8 +102,14 @@ export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<Wo
     }
 
     const keyOfStep = new Map(stepRows.map((s) => [s.id, s.key]));
-    const actualRows = await db.select().from(actuals).where(and(eq(actuals.workspaceId, ws.id), eq(actuals.processId, p.id))).orderBy(asc(actuals.periodStart));
-    const actualPoints: ActualPoint[] = actualRows.map((r) => ({ period: r.periodStart, metric: r.metric, step: r.stepId ? keyOfStep.get(r.stepId) ?? null : null, value: r.value }));
+    // One value per month, metric and step: when CSV and telemetry both have it, the latest import wins.
+    const actualRows = await db.select().from(actuals).where(and(eq(actuals.workspaceId, ws.id), eq(actuals.processId, p.id))).orderBy(asc(actuals.periodStart), asc(actuals.importedAt));
+    const latestActual = new Map<string, ActualPoint>();
+    for (const r of actualRows) {
+      const point = { period: r.periodStart, metric: r.metric, step: r.stepId ? keyOfStep.get(r.stepId) ?? null : null, value: r.value };
+      latestActual.set(`${point.period}|${point.metric}|${point.step ?? ""}`, point);
+    }
+    const actualPoints: ActualPoint[] = [...latestActual.values()];
 
     const liveIds = new Set(live.map((s) => s.id));
     const edgeRows = await db.select().from(processEdges).where(and(eq(processEdges.workspaceId, ws.id), eq(processEdges.processId, p.id)));
@@ -114,6 +121,12 @@ export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<Wo
     const comments: StepComment[] = commentRows.filter((c) => keyOfStep.has(c.stepId)).map((c) => ({
       id: c.id, step: keyOfStep.get(c.stepId)!, author: c.authorName, body: c.body, createdAt: c.createdAt.toISOString(),
       resolvedAt: c.resolvedAt ? c.resolvedAt.toISOString() : null, resolvedBy: c.resolvedBy,
+    }));
+
+    const agentRows = await db.select().from(agents).where(and(eq(agents.workspaceId, ws.id), eq(agents.processId, p.id)));
+    const agentRecords: AgentRecord[] = agentRows.filter((a) => keyOfStep.has(a.stepId)).map((a) => ({
+      step: keyOfStep.get(a.stepId)!, name: a.name, platform: a.platform, owner: a.owner, model: a.model,
+      status: a.status as AgentStatus, risk: a.risk as AgentRisk, monthlyBudget: a.monthlyBudget, priceIn: a.priceIn, priceOut: a.priceOut,
     }));
 
     // Stage and light follow what has happened: steps mapped, baseline approved, actuals uploaded.
@@ -128,7 +141,7 @@ export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<Wo
       id: p.slug, name: p.name, templateId: p.templateId, templateVersion: p.templateVersion, unit: p.unit,
       stage: effectiveStage(toStage(p.stage), { stepCount: stepDefs.length, hasBaseline: !!baseline, hasActuals }),
       gate: gateFromRealised(p.gate, realisedShare), note: p.note, steps: stepDefs, design,
-      assumptions, baseline, actuals: actualPoints, edges, hasDraft: !!draft, comments,
+      assumptions, baseline, actuals: actualPoints, edges, hasDraft: !!draft, comments, agents: agentRecords,
     });
   }
   return { workspace: { id: ws.slug, name: ws.name, isExample: ws.isExample }, processes: out };
@@ -391,12 +404,25 @@ export async function importActuals(db: DB, wsSlug: string, processSlug: string,
   });
 }
 
-/** Removes all uploaded (CSV) actuals for a process. */
+/** Creates or updates the registry record for the agent on a step. */
+export async function saveAgent(db: DB, wsSlug: string, processSlug: string, stepKey: string, rec: Omit<AgentRecord, "step">, actorId: string) {
+  await db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const step = await stepByKey(tx, p.id, stepKey);
+    const values = { ...rec, updatedAt: new Date() };
+    await tx.insert(agents).values({ workspaceId: ws.id, processId: p.id, stepId: step.id, ...values })
+      .onConflictDoUpdate({ target: agents.stepId, set: values });
+    await audit(tx, ws.id, actorId, "agent.saved", { process: processSlug, step: stepKey, name: rec.name, status: rec.status });
+  });
+}
+
+/** Removes all uploaded actuals (CSV and telemetry) for a process. */
 export async function clearActuals(db: DB, wsSlug: string, processSlug: string, actorId: string) {
   await db.transaction(async (tx) => {
     const ws = await workspaceBySlug(tx, wsSlug);
     const p = await processBySlug(tx, ws.id, processSlug);
-    const removed = await tx.delete(actuals).where(and(eq(actuals.workspaceId, ws.id), eq(actuals.processId, p.id), eq(actuals.source, "csv"))).returning({ id: actuals.id });
+    const removed = await tx.delete(actuals).where(and(eq(actuals.workspaceId, ws.id), eq(actuals.processId, p.id), inArray(actuals.source, ["csv", "telemetry"]))).returning({ id: actuals.id });
     await audit(tx, ws.id, actorId, "actuals.cleared", { process: processSlug, rows: removed.length });
   });
 }

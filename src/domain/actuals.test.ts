@@ -106,3 +106,17 @@ describe("summariseActuals with a per-month plan", () => {
     expect(s.realisedShare).toBeCloseTo(1, 6);
   });
 });
+
+describe("realised value with agent costs", () => {
+  it("uses the sum of agent costs when no process AI cost is uploaded", async () => {
+    const { realisedForMonth } = await import("./actuals");
+    const a = { casesPerMonth: 1000, costPerHour: 100, agentQuality: 80, oversightShare: 0, aiCostPerStepCase: 0, fixedCostPerYear: 0 };
+    const pts = [
+      { period: "2027-01-01", metric: "hours_released", step: null, value: 100 },
+      { period: "2027-01-01", metric: "agent_cost_sek", step: "triage", value: 1000 },
+      { period: "2027-01-01", metric: "agent_cost_sek", step: "resolve", value: 2000 },
+    ];
+    expect(realisedForMonth(pts, "2027-01-01", { aiCost: 120_000, assumptions: a })).toBe(10_000 - 3000);
+    expect(realisedForMonth([...pts, { period: "2027-01-01", metric: "ai_cost_sek", step: null, value: 500 }], "2027-01-01", { aiCost: 0, assumptions: a })).toBe(9500);
+  });
+});

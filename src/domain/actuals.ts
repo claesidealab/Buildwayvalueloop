@@ -13,7 +13,8 @@
  * the scenario's go-live and ramp (see plannedForMonth in strategy.ts):
  *
  *   realised = hours_released × cost per hour × (1 − oversight share)
- *              − AI cost (ai_cost_sek if uploaded, else the plan's AI cost / 12)
+ *              − AI cost (ai_cost_sek if uploaded, else the sum of agent_cost_sek per step if any,
+ *                         else the plan's AI cost / 12)
  *              − fixed cost / 12
  */
 import type { Assumptions } from "./types";
@@ -38,6 +39,8 @@ export const METRICS: MetricDef[] = [
   { key: "csat", label: "CSAT", unit: "/5", scope: "process", min: 1, max: 5 },
   { key: "success_rate", label: "Agent success", unit: "%", scope: "step", min: 0, max: 100 },
   { key: "escalation_rate", label: "Escalation", unit: "%", scope: "step", min: 0, max: 100 },
+  { key: "agent_runs", label: "Agent runs", unit: "", scope: "step", min: 0, max: 1_000_000_000 },
+  { key: "agent_cost_sek", label: "Agent cost", unit: "SEK", scope: "step", min: 0, max: 1_000_000_000 },
 ];
 
 const METRIC = new Map(METRICS.map((m) => [m.key, m]));
@@ -48,7 +51,9 @@ export function realisedForMonth(points: ActualPoint[], period: string, plan: { 
   const hours = get("hours_released");
   if (hours === undefined) return null;
   const a = plan.assumptions;
-  return hours * a.costPerHour * (1 - a.oversightShare / 100) - (get("ai_cost_sek") ?? plan.aiCost / 12) - a.fixedCostPerYear / 12;
+  const agentCosts = points.filter((p) => p.period === period && p.metric === "agent_cost_sek" && p.step !== null);
+  const ai = get("ai_cost_sek") ?? (agentCosts.length ? agentCosts.reduce((t, p) => t + p.value, 0) : plan.aiCost / 12);
+  return hours * a.costPerHour * (1 - a.oversightShare / 100) - ai - a.fixedCostPerYear / 12;
 }
 
 export interface ActualPoint {

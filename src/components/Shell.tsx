@@ -53,6 +53,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <nav className="nav" aria-label="Main">
           {link(path(""), "Overview")}
           {link(path("/strategy"), "Strategy")}
+          {link(path("/agents"), "Agents")}
           {link(path("/templates"), "Templates")}
           {mapped.map((p) => (
             <div key={p.id} style={{ display: "contents" }}>
@@ -76,7 +77,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <main>
         <div className="wrap view">
           {error && <p className="banner" role="alert">{error}</p>}
-          {state && !can("design.edit") && <p className="readonly">View only. Your role ({roleLabel}) can see everything but not change it.</p>}
+          {state && !can("design.edit") && <p className="readonly">View only. Your role ({roleLabel}) can see everything and comment on steps, but not change them.</p>}
           {state ? children : !error && <p className="muted">Loading workspace…</p>}
         </div>
       </main>

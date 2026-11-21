@@ -43,7 +43,12 @@ interface Store {
   resolveComment: (processId: string, commentId: string, resolved: boolean) => void;
   /** Add reviewed steps and arrows in one go (AI draft or BPMN file). */
   importMap: (processId: string, body: MapImport) => Promise<boolean>;
+  saveAgent: (processId: string, step: string, rec: Omit<import("@/domain/agents").AgentRecord, "step">) => void;
+  /** Import OTLP/JSON telemetry; resolves with a summary, or throws with the server's message. */
+  importTelemetry: (processId: string, otlp: string) => Promise<TelemetrySummary>;
 }
+
+export interface TelemetrySummary { spans: number; matchedSpans: number; unmatched: string[]; unpriced: string[]; months: string[] }
 
 export interface MapImport {
   steps: Array<{ name: string; description: string; minutesPerCase: number; caseShare: number; fit: import("@/domain/types").FitFactors }>;
@@ -177,6 +182,14 @@ export function WorkspaceProvider({ slug, children }: { slug: string; children: 
       patchProcess(pid, (p) => ({ ...p, comments: p.comments.map((c) => (c.id === id ? { ...c, resolvedAt: resolved ? new Date().toISOString() : null } : c)) })),
       () => call("PATCH", `${base}/processes/${pid}/comments/${id}`, { resolved }),
     ),
+    saveAgent: (pid, step, rec) => mutate(
+      patchProcess(pid, (p) => ({ ...p, agents: [...p.agents.filter((a) => a.step !== step), { ...rec, step }] })),
+      () => call("PUT", `${base}/processes/${pid}/agents/${step}`, rec),
+    ),
+    importTelemetry: async (pid, otlp) => {
+      const r = await call<WorkspaceState & { telemetry: TelemetrySummary }>("POST", `${base}/processes/${pid}/telemetry`, { otlp });
+      seq.current++; setState(r); return r.telemetry;
+    },
     importMap: async (pid, body) => {
       try { const server = await call("POST", `${base}/processes/${pid}/import`, body); seq.current++; setState(server); return true; }
       catch (e) { setError(`Could not add the steps: ${(e as Error).message}`); return false; }

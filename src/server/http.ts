@@ -95,6 +95,14 @@ export const mapImportSchema = z.object({
   edges: z.array(z.tuple([z.number().int().min(0).max(39), z.number().int().min(0).max(39)])).max(120),
 }).strict();
 
+const money = z.number().min(0).max(1e10).nullable();
+export const agentSchema = z.object({
+  name: z.string().trim().min(1).max(80), platform: z.string().max(60), owner: z.string().max(80), model: z.string().max(60),
+  status: z.enum(["planned", "shadow", "live", "paused"]), risk: z.enum(["minimal", "limited", "high"]),
+  monthlyBudget: money, priceIn: money, priceOut: money,
+}).strict();
+export const telemetrySchema = z.object({ otlp: z.string().min(2).max(5_000_000, "The file is larger than 5 MB") }).strict();
+
 export const edgeSchema = z.object({ from: z.string().min(1).max(64), to: z.string().min(1).max(64) }).strict();
 
 export const assumptionsPatchSchema = z

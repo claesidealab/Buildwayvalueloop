@@ -93,6 +93,12 @@ Land with advisory, expand with licences, retain with managed services.
 - [x] Value-against-ease matrix for the flow inventory
 - [ ] Scenario comparison export for the board
 
+### Agents (pulled forward from phase 3)
+- [x] Agent registry across processes: owner, platform, model, status (with pause), EU AI Act risk class, budget
+- [x] Cost per agent and cost per run, over-budget flags
+- [x] Telemetry import from OpenTelemetry (OTLP/JSON, GenAI conventions), e.g. exported from Langfuse, LangSmith or Arize
+- [ ] Live telemetry push (OTLP endpoint) instead of file import
+
 ### Phase 2: close the loop (3–6 months after MVP)
 - Simulation of the to-be (queues, escalation, confidence thresholds) replacing the simple range
 - Connectors to agent platforms for agent telemetry (OpenTelemetry GenAI conventions)

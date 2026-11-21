@@ -64,6 +64,7 @@ realised share         = Σ realised ÷ Σ plan, over months with hours_released
 stage                  = furthest of stored stage, find (steps), build (baseline), run (actuals)
 light                  = with actuals: green ≥ 90% realised share, amber ≥ 70%, red below
 step alert             = agent success < 80% or escalation > 15% in the latest month
+AI cost in a month     = ai_cost_sek if uploaded, else Σ agent_cost_sek over steps if any, else plan AI cost / 12
 ```
 
 CSV: `month,metric,step,value`, comma or semicolon separated (decimal comma allowed with semicolons). Metrics: `hours_released`, `ai_cost_sek`, `cases`, `handled_without_human`, `cost_per_case`, `csat` (process level) and `success_rate`, `escalation_rate` (per step). Uploads are all or nothing: any bad row and nothing is stored; the response lists problems by line. Re-uploading a month replaces its values (unique per process, step, metric, month and source).
@@ -98,6 +99,20 @@ Gate checks (`src/domain/gates.ts`, covered by `gates.test.ts`):
 value_vs_plan = Σ realised ÷ Σ planned over the half-year's months with hours_released (plan follows the ramp)
 other metrics = the process metric's value in the last month of the half-year that has it
 suggestion    = met if measured passes the target (≥ or ≤), missed if not, no-data without uploads
+```
+
+Agent registry and telemetry (`src/domain/agents.ts`, `src/domain/telemetry.ts`, covered by tests):
+
+```
+agents             = steps in the AI agent lane (L3+, not systems), with a registry record or defaults
+cost this month    = agent_cost_sek in the latest month with data; cost per run = cost ÷ agent_runs
+over budget        = cost this month > monthly budget
+OTLP/JSON import   = spans matched by gen_ai.agent.name (or gen_ai.agent.id, valueloop.step) to the
+                     registry name, step key or step name; children inherit the invoke_agent span's agent
+  agent_runs       = invoke_agent spans per month (distinct traces if there are none)
+  agent_cost_sek   = input tokens / 1M × price in + output tokens / 1M × price out (child model calls;
+                     the invoke_agent span's own usage only when no child reports any)
+  success_rate     = runs without status ERROR ÷ runs; escalation_rate = runs with valueloop.escalated ÷ runs
 ```
 
 Agent fit (`src/domain/fit.ts`) scores 0–100 from four ratings (volume, rule-based, data ready, error risk) and suggests a level. High error risk caps the suggestion at L2.
@@ -136,6 +151,7 @@ Permissions live in `src/domain/permissions.ts`. Every API route calls `guard(wo
 - Process map: steps have a canvas position (`pos_x`, also their order), a share of cases and a phase (`both`, `as-is` = removed in the redesign, `to-be` = new in the redesign). Arrows are rows in `process_edges`. Deleting a step archives it (`archived_at`) so baselines and uploaded figures that use it still resolve. Approved designs store a snapshot of the step definitions they were valued with (`designs.steps_snapshot`), so later edits never change an approved baseline.
 - Canvas: `src/components/ProcessCanvas.tsx` (React Flow). Lanes are bands of autonomy: dropping a step in the Human lane caps it at L2, the AI agent lane makes it at least L3, the System lane makes it an L4 rule-based system (`levelForLane` in `src/domain/autonomy.ts`).
 - Comments: `step_comments` holds discussion per step (author name kept if the user is removed), resolved or open. They come with the process in the workspace state and show on the canvas as a count of open comments.
+- Agent registry: `agents` has one row per agent-carried step (name as in telemetry, platform, owner, model, status planned/shadow/live/paused, EU AI Act risk class, monthly budget, token prices). Telemetry is stored as actuals with source `telemetry`; when CSV and telemetry give the same month, metric and step, the latest import wins.
 - Map import: `importMap` adds several steps and arrows in one transaction, after the steps already on the map. Used for the AI-drafted as-is map (`src/server/process-draft.ts`, Claude with structured output, reviewed before adding) and BPMN files.
 - Every change writes an `audit_log` row: design edits, assumptions, baselines, uploads, and member and workspace changes. The History page shows them in plain language.
 - The example workspace (`acme-support`) is seeded on first request and can be reset; real workspaces cannot.
@@ -162,6 +178,8 @@ Workspace calls return the full workspace state (`WorkspaceState` in `src/lib/ap
 | POST | `/api/workspaces/:ws/processes/:process/comments` | `{ step, body }` | design.comment |
 | PATCH | `/api/workspaces/:ws/processes/:process/comments/:id` | `{ resolved }` | design.comment |
 | POST | `/api/workspaces/:ws/processes/:process/draft` | `{ text }`: Claude drafts today's steps; nothing is saved (503 without `ANTHROPIC_API_KEY`) | design.edit |
+| PUT | `/api/workspaces/:ws/processes/:process/agents/:step` | `{ name, platform, owner, model, status, risk, monthlyBudget, priceIn, priceOut }` | design.edit |
+| POST | `/api/workspaces/:ws/processes/:process/telemetry` | `{ otlp }`: OTLP/JSON traces (max 5 MB) | actuals.import |
 | POST | `/api/workspaces/:ws/processes/:process/import` | `{ steps, edges }`: add reviewed steps and arrows at once | design.edit |
 | POST | `/api/workspaces/:ws/processes/:process/baselines` | – | baseline.approve |
 | POST | `/api/workspaces/:ws/reset` | – (example workspaces only) | workspace.reset |

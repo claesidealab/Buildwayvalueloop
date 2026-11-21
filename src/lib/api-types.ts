@@ -2,6 +2,7 @@
 import type { Assumptions, AutonomyLevel, Baseline, FitFactors, Gate, ProcessDesign, ProcessEdge, Role, Stage, StepDefinition } from "@/domain/types";
 import type { Permission } from "@/domain/permissions";
 import type { ActualPoint } from "@/domain/actuals";
+import type { AgentRecord } from "@/domain/agents";
 
 export interface ProcessInstance {
   /** URL slug, unique within the workspace. */
@@ -25,6 +26,8 @@ export interface ProcessInstance {
   hasDraft: boolean;
   /** Discussion on steps, oldest first. */
   comments: StepComment[];
+  /** Registered agents (agent-lane steps not listed here use defaults). */
+  agents: AgentRecord[];
 }
 
 export interface StepComment {

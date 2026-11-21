@@ -202,3 +202,24 @@ export const stepComments = pgTable("step_comments", {
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   resolvedBy: text("resolved_by"),
 }, (t) => [check("step_comments_body_len", sql`char_length(${t.body}) between 1 and 2000`)]);
+
+/** Agent registry: one record per agent-carried step, with owner, platform, status, risk and cost settings. */
+export const agents = pgTable("agents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  processId: uuid("process_id").notNull().references(() => processes.id, { onDelete: "cascade" }),
+  stepId: uuid("step_id").notNull().references(() => steps.id, { onDelete: "cascade" }).unique(),
+  name: text("name").notNull(),
+  platform: text("platform").notNull().default(""),
+  owner: text("owner").notNull().default(""),
+  model: text("model").notNull().default(""),
+  status: text("status").notNull().default("planned"),
+  risk: text("risk").notNull().default("minimal"),
+  monthlyBudget: doublePrecision("monthly_budget"),
+  priceIn: doublePrecision("price_in"),
+  priceOut: doublePrecision("price_out"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  check("agents_status", sql`${t.status} in ('planned', 'shadow', 'live', 'paused')`),
+  check("agents_risk", sql`${t.risk} in ('minimal', 'limited', 'high')`),
+]);
