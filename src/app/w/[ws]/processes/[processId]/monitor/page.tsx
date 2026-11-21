@@ -179,7 +179,7 @@ export default function MonitorPage({ params }: { params: Promise<{ processId: s
   const { processId } = use(params);
   const { process, value, loading, path, can } = useProcess(processId);
   const planCase = useMemo(
-    () => (process && process.steps.length ? computeValueCase(process.steps, process.baseline?.design ?? process.design, process.baseline?.assumptions ?? process.assumptions) : undefined),
+    () => (process && process.steps.length ? computeValueCase(process.baseline?.steps ?? process.steps, process.baseline?.design ?? process.design, process.baseline?.assumptions ?? process.assumptions) : undefined),
     [process],
   );
   if (loading) return null;

@@ -29,6 +29,12 @@ export function describeActivity(action: string, s: Subject, names: { process: (
     case "member.removed": return `removed ${s.email ?? "a member"}`;
     case "invitation.revoked": return `withdrew the invitation for ${s.email}`;
     case "workspace.created": return `created the workspace`;
+    case "step.added": return `added the step ${s.name} to ${proc}${s.phase === "to-be" ? " (new in the redesign)" : ""}`;
+    case "step.removed": return s.result === "archived" ? `deleted the step ${s.name} in ${proc}` : s.result === "as-is" ? `removed ${s.name} from the redesign of ${proc}` : `removed ${s.name} from today's ${proc} process`;
+    case "step.restored": return `put ${s.name} back into the redesign of ${proc}`;
+    case "step.edited": return `edited ${names.step(String(s.process), String(s.step))} in ${proc} (${Object.keys(s.changes as Subject).map((k) => ({ name: "name", description: "description", minutesPerCase: "time", caseShare: "share of cases" } as Record<string, string>)[k] ?? (k.startsWith("fit") ? "fit" : k)).join(", ")})`;
+    case "edge.added": return `drew an arrow from ${names.step(String(s.process), String(s.from))} to ${names.step(String(s.process), String(s.to))} in ${proc}`;
+    case "edge.removed": return `removed an arrow in ${proc}`;
     default: return action;
   }
 }

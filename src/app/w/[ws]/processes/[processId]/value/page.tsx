@@ -25,7 +25,7 @@ export default function ValuePage({ params }: { params: Promise<{ processId: str
 
   const lo = Math.min(value.low, 0), hi = Math.max(value.high, 1), span = hi - lo || 1;
   const pct = (v: number) => ((v - lo) / span) * 100;
-  const maxH = Math.max(...value.steps.map((s) => s.hoursReleased), 1);
+  const maxH = Math.max(...value.steps.map((s) => Math.abs(s.hoursReleased)), 1);
   const b = process.baseline;
 
   return (
@@ -83,8 +83,8 @@ export default function ValuePage({ params }: { params: Promise<{ processId: str
             <div className="hbars">
               {value.steps.map((s) => (
                 <div className="hb" key={s.step.id}>
-                  <span>{s.step.name}</span>
-                  <span className="bar"><i className={s.lane[0]} style={{ width: `${(s.hoursReleased / maxH) * 100}%` }} /></span>
+                  <span>{s.step.name}{s.status === "removed" ? " (removed)" : s.status === "added" ? " (new)" : ""}</span>
+                  <span className="bar"><i className={s.hoursReleased < 0 ? "neg" : s.status === "removed" ? "r" : s.lane[0]} style={{ width: `${(Math.abs(s.hoursReleased) / maxH) * 100}%` }} /></span>
                   <span className="num muted" style={{ textAlign: "right" }}>{formatInt(s.hoursReleased)} h</span>
                 </div>
               ))}

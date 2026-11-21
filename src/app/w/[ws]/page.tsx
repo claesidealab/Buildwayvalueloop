@@ -18,7 +18,7 @@ export default function Overview() {
   const plan = live.reduce((t, p) => t + (p.baseline?.net ?? valueOf(p).net), 0);
   const measured = live.filter((p) => p.actuals.some((a) => a.metric === "hours_released"));
   const realised = measured.reduce((t, p) => {
-    const planCase = computeValueCase(p.steps, p.baseline?.design ?? p.design, p.baseline?.assumptions ?? p.assumptions);
+    const planCase = computeValueCase(p.baseline?.steps ?? p.steps, p.baseline?.design ?? p.design, p.baseline?.assumptions ?? p.assumptions);
     return t + summariseActuals(p.actuals, { net: p.baseline?.net ?? planCase.net, aiCost: planCase.aiCost, assumptions: p.baseline?.assumptions ?? p.assumptions }).realisedToDate;
   }, 0);
   const agents = live.reduce((t, p) => t + valueOf(p).steps.filter((s) => s.lane === "agent").length, 0);
@@ -47,7 +47,7 @@ export default function Overview() {
             const ready = p.steps.length > 0;
             const body = (
               <>
-                <div><h3>{p.name}</h3><p className="meta">{p.templateId ? `Template v${p.templateVersion} · ${p.steps.length} steps` : "Not mapped yet"}</p></div>
+                <div><h3>{p.name}</h3><p className="meta">{p.templateId ? `Template v${p.templateVersion} · ${p.steps.filter((s) => s.phase !== "as-is").length} steps after redesign` : "Not mapped yet"}</p></div>
                 <RouteTrack stage={p.stage} />
                 <TrafficLight gate={p.gate} />
                 <div className="rv"><b className="num">{ready ? `${formatMSEK(p.baseline?.net ?? valueOf(p).net)} MSEK ${p.baseline ? "approved" : "planned"} / yr` : p.stage === "not-started" ? "In the backlog" : "In progress"}</b><p className="meta">{p.note}</p></div>

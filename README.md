@@ -19,6 +19,7 @@ Phase 1 groundwork. What works today:
 | Domain model and value model | Done, with unit tests (`src/domain`) |
 | Customer service template v1 | Done (`src/templates`) |
 | Overview, templates, redesign canvas, agent fit, value case, monitor | Working screens |
+| Process map editor | Done: drag and drop between lanes, draw arrows, add, edit and remove steps |
 | Database and API | Done: Postgres via Drizzle, migrations, REST API, audit log, tests |
 | Sign-in, workspaces and roles | Done: Microsoft and Google sign-in, sessions, four roles, invitations, members page |
 | Monitoring actuals | Done: CSV upload with per-line validation; monitor and overview use real figures (example data only until the first upload) |

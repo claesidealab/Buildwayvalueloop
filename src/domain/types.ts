@@ -27,13 +27,33 @@ export interface FitFactors {
   errorRisk: Rating;
 }
 
+/**
+ * Which version of the process a step belongs to.
+ * both: in today's process and the redesign · as-is: removed in the redesign · to-be: new in the redesign
+ */
+export type StepPhase = "both" | "as-is" | "to-be";
+
 export interface StepDefinition {
   id: string;
   name: string;
   description: string;
-  /** Human handling time per case in the as-is process. */
+  /** Human handling time per case when a person does the whole step. */
   minutesPerCase: number;
+  /** Share of cases that pass through this step, 0–100. Default 100. */
+  caseShare?: number;
+  /** Default "both". */
+  phase?: StepPhase;
+  /** Horizontal position on the canvas; also the step order. */
+  x?: number;
   fit: FitFactors;
+}
+
+/** An arrow between two steps on the process map. */
+export interface ProcessEdge {
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
 }
 
 export interface Assumptions {
@@ -75,7 +95,10 @@ export interface StepValue {
   step: StepDefinition;
   level: AutonomyLevel;
   lane: Lane;
+  /** kept: in both versions · removed: only in today's process · added: new in the redesign */
+  status: "kept" | "removed" | "added";
   automatedShare: number;
+  /** Positive for time saved; negative when a new manual step adds work. */
   hoursReleased: number;
 }
 
@@ -100,6 +123,8 @@ export interface Baseline {
   net: number;
   design: ProcessDesign;
   assumptions: Assumptions;
+  /** The steps as they were when the baseline was approved. */
+  steps: StepDefinition[];
 }
 
 export type Role = "advisor" | "customer-admin" | "process-owner" | "viewer";

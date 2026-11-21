@@ -35,16 +35,21 @@ Template ── StepDefinition, default design, default assumptions, agent patte
 `src/domain/value-model.ts`, covered by `value-model.test.ts`:
 
 ```
-cases / yr       = cases per month × 12
-automated share  = AUTOMATION_SHARE[level]   (0, 0.2, 0.45, 0.7, 0.9)
-                   × agent quality / 80 for agent-led steps, capped at 0.98
-hours released   = cases / yr × Σ (minutes per case × automated share) / 60
-labour benefit   = hours released × cost per hour
-oversight        = labour benefit × oversight share
-AI cost          = cases / yr × (agent-led steps + 0.5 × assisted steps) × cost per step and case
-net              = labour benefit − oversight − AI cost − fixed cost
-range            = net − 25% … net + 15% of labour benefit   (until simulation, phase 2)
+cases / yr        = cases per month × 12
+case share        = share of cases that pass through a step (default 100%)
+automated share   = AUTOMATION_SHARE[level]   (0, 0.2, 0.45, 0.7, 0.9)
+                    × agent quality / 80 for agent-led steps, capped at 0.98
+minutes today     = Σ over today's steps (phase both or as-is) of minutes × case share
+minutes after     = Σ over redesigned steps (phase both or to-be) of minutes × case share × (1 − automated share)
+hours released    = cases / yr × (minutes today − minutes after) / 60
+labour benefit    = hours released × cost per hour
+oversight         = labour benefit × oversight share   (0 if the redesign adds work)
+AI cost           = cases / yr × Σ case share × (1 agent-led | 0.5 assisted) × cost per step and case
+net               = labour benefit − oversight − AI cost − fixed cost
+range             = net − 25% … net + 15% of |labour benefit|   (until simulation, phase 2)
 ```
+
+A step removed in the redesign (phase `as-is`) saves all its time; a new manual step (phase `to-be`) adds time.
 
 Actuals (`src/domain/actuals.ts`, covered by `actuals.test.ts`):
 
@@ -92,6 +97,8 @@ Permissions live in `src/domain/permissions.ts`. Every API route calls `guard(wo
 - Connection: `src/server/db/index.ts`. `DATABASE_URL` set: node-postgres. Unset: PGlite in `PGLITE_DIR` (default `.data/pglite`). Tests use an in-memory PGlite per test, or a real Postgres when `TEST_DATABASE_URL` is set (`npm run test:pg`; CI runs both).
 - Data access: `src/server/repo.ts`. Every function takes a workspace slug and filters on `workspace_id`. Domain errors (`NotFoundError`, `ConflictError`) map to 404 and 409 in `src/server/http.ts`.
 - Designs: each process has one mutable **draft** design (enforced by a partial unique index). Approving a baseline copies the draft into a new immutable **approved** design and records the baseline with the value computed on the server. The client never sends the value.
+- Process map: steps have a canvas position (`pos_x`, also their order), a share of cases and a phase (`both`, `as-is` = removed in the redesign, `to-be` = new in the redesign). Arrows are rows in `process_edges`. Deleting a step archives it (`archived_at`) so baselines and uploaded figures that use it still resolve. Approved designs store a snapshot of the step definitions they were valued with (`designs.steps_snapshot`), so later edits never change an approved baseline.
+- Canvas: `src/components/ProcessCanvas.tsx` (React Flow). Lanes are bands of autonomy: dropping a step in the Human lane caps it at L2, the AI agent lane makes it at least L3, the System lane makes it an L4 rule-based system (`levelForLane` in `src/domain/autonomy.ts`).
 - Every change writes an `audit_log` row: design edits, assumptions, baselines, uploads, and member and workspace changes. The History page shows them in plain language.
 - The example workspace (`acme-support`) is seeded on first request and can be reset; real workspaces cannot.
 
@@ -108,7 +115,11 @@ Workspace calls return the full workspace state (`WorkspaceState` in `src/lib/ap
 | GET | `/api/me` | – | signed in |
 | POST | `/api/workspaces` | `{ name, slug }` | Buildway staff |
 | GET | `/api/workspaces/:ws` | – | workspace.read |
-| PATCH | `/api/workspaces/:ws/processes/:process/steps/:step` | `{ autonomy?: 0–4, isSystem?: boolean }` | design.edit |
+| POST | `/api/workspaces/:ws/processes/:process/steps` | `{ name, view, minutesPerCase?, caseShare?, x?, autonomy?, isSystem?, fit? }` | design.edit |
+| PATCH | `/api/workspaces/:ws/processes/:process/steps/:step` | any of `autonomy`, `isSystem`, `name`, `description`, `minutesPerCase`, `caseShare`, `x`, `fit` | design.edit |
+| DELETE | `/api/workspaces/:ws/processes/:process/steps/:step?view=to-be\|as-is` | – | design.edit |
+| POST | `/api/workspaces/:ws/processes/:process/steps/:step/restore` | – | design.edit |
+| POST, DELETE | `/api/workspaces/:ws/processes/:process/edges[/:id]` | POST `{ from, to }` | design.edit |
 | PATCH | `/api/workspaces/:ws/processes/:process/assumptions` | any subset of `Assumptions` | design.edit |
 | POST | `/api/workspaces/:ws/processes/:process/baselines` | – | baseline.approve |
 | POST | `/api/workspaces/:ws/reset` | – (example workspaces only) | workspace.reset |

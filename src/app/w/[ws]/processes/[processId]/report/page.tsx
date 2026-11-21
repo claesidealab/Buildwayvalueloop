@@ -18,7 +18,8 @@ export default function ReportPage({ params }: { params: Promise<{ processId: st
   const version = which ?? (process?.baseline ? "baseline" : "draft");
   const design = version === "baseline" && process?.baseline ? process.baseline.design : process?.design;
   const assumptions = version === "baseline" && process?.baseline ? process.baseline.assumptions : process?.assumptions;
-  const v = useMemo(() => (process && design && assumptions && process.steps.length ? computeValueCase(process.steps, design, assumptions) : undefined), [process, design, assumptions]);
+  const stepList = version === "baseline" && process?.baseline ? process.baseline.steps : process?.steps;
+  const v = useMemo(() => (stepList && design && assumptions && stepList.length ? computeValueCase(stepList, design, assumptions) : undefined), [stepList, design, assumptions]);
   if (loading) return null;
   if (!process || !v || !assumptions || !state) return <NotFound />;
 
@@ -57,22 +58,22 @@ export default function ReportPage({ params }: { params: Promise<{ processId: st
         <section className="report-hero">
           <div><p className="label">Net value per year</p><p className="big num">{formatMSEK(v.net)} <span className="unit">MSEK</span></p><p className="muted num">Range {formatMSEK(v.low)} to {formatMSEK(v.high)} MSEK</p></div>
           <div><p className="label">Hours released per year</p><p className="mid-num num">{formatInt(v.hoursReleased)}</p><p className="muted num">of {formatInt(v.asIsHours)} handled by people today</p></div>
-          <div><p className="label">Steps done by people</p><p className="mid-num num">{v.stepsDoneByPeople} of {process.steps.length}</p><p className="muted">after the redesign</p></div>
+          <div><p className="label">Steps done by people</p><p className="mid-num num">{v.stepsDoneByPeople} of {v.steps.filter((s) => s.status !== "removed").length}</p><p className="muted">after the redesign</p></div>
           {realised && <div><p className="label">Realised so far</p><p className="mid-num num">{realised.realisedShare === null ? "—" : `${Math.round(realised.realisedShare * 100)}%`}</p><p className="muted num">{formatMSEK(realised.realisedToDate)} of {formatMSEK(realised.planToDate)} MSEK planned</p></div>}
         </section>
 
         <section>
           <h2>Redesigned process</h2>
           <table className="tbl report-tbl">
-            <thead><tr><th>Step</th><th>Today, min / {process.unit}</th><th>Autonomy</th><th>Done by</th><th>Automated</th><th>Hours released / yr</th></tr></thead>
+            <thead><tr><th>Step</th><th>Min / {process.unit}</th><th>Share of cases</th><th>Autonomy</th><th>Done by</th><th>Hours released / yr</th></tr></thead>
             <tbody>
               {v.steps.map((s) => (
                 <tr key={s.step.id}>
-                  <td><b>{s.step.name}</b></td>
+                  <td><b>{s.step.name}</b>{s.status === "added" ? " (new)" : ""}</td>
                   <td className="num">{s.step.minutesPerCase.toFixed(1)}</td>
-                  <td>L{s.level} {AUTONOMY_LEVELS[s.level].name}</td>
-                  <td>{lane(s.lane, s.level)}</td>
-                  <td className="num">{Math.round(s.automatedShare * 100)}%</td>
+                  <td className="num">{s.step.caseShare ?? 100}%</td>
+                  <td>{s.status === "removed" ? "Removed in redesign" : `L${s.level} ${AUTONOMY_LEVELS[s.level].name}`}</td>
+                  <td>{s.status === "removed" ? "—" : lane(s.lane, s.level)}</td>
                   <td className="num">{formatInt(s.hoursReleased)}</td>
                 </tr>
               ))}

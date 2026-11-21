@@ -7,7 +7,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Assumptions, AutonomyLevel } from "@/domain/types";
-import type { ProcessInstance, WorkspaceState } from "./api-types";
+import type { NewStep, ProcessInstance, StepPatch, WorkspaceState } from "./api-types";
 import type { Permission } from "@/domain/permissions";
 
 export type { ProcessInstance, WorkspaceState };
@@ -29,6 +29,14 @@ interface Store {
   /** Replace local state with a server response (e.g. after an upload). */
   replace: (s: WorkspaceState) => void;
   reset: () => void;
+  /** Edit a step's definition and/or autonomy. Updates the screen at once. */
+  patchStep: (processId: string, stepId: string, patch: StepPatch) => void;
+  /** Add a step; resolves with the new step's id once saved. */
+  addStep: (processId: string, step: NewStep) => Promise<string | null>;
+  removeStep: (processId: string, stepId: string, view: "as-is" | "to-be") => void;
+  restoreStep: (processId: string, stepId: string) => void;
+  addEdge: (processId: string, from: string, to: string) => void;
+  removeEdge: (processId: string, edgeId: string) => void;
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -115,6 +123,40 @@ export function WorkspaceProvider({ slug, children }: { slug: string; children: 
     replace: (s) => { seq.current++; setState(s); },
     approveBaseline: (pid) => mutate((s) => s, () => call("POST", `${base}/processes/${pid}/baselines`)),
     reset: () => mutate((s) => s, () => call("POST", `${base}/reset`)),
+    patchStep: (pid, stepId, patch) =>
+      mutate(
+        patchProcess(pid, (p) => {
+          const { autonomy, isSystem, fit, ...def } = patch;
+          const steps = p.steps.map((st) => (st.id === stepId ? { ...st, ...def, fit: { ...st.fit, ...fit } } : st));
+          let design = p.design;
+          if (autonomy !== undefined || isSystem !== undefined) {
+            const level = autonomy ?? p.design.levels[stepId] ?? 0;
+            const sys = level >= 4 && (isSystem ?? p.design.systemSteps.includes(stepId));
+            design = { levels: { ...p.design.levels, [stepId]: level }, systemSteps: [...p.design.systemSteps.filter((x) => x !== stepId), ...(sys ? [stepId] : [])] };
+          }
+          return { ...p, steps, design };
+        }),
+        () => call("PATCH", `${base}/processes/${pid}/steps/${stepId}`, patch),
+      ),
+    addStep: async (pid, step) => {
+      const before = new Set(state?.processes.find((p) => p.id === pid)?.steps.map((x) => x.id) ?? []);
+      try {
+        const server = await call("POST", `${base}/processes/${pid}/steps`, step);
+        seq.current++;
+        setState(server);
+        return server.processes.find((p) => p.id === pid)?.steps.find((x) => !before.has(x.id))?.id ?? null;
+      } catch (e) { setError(`Could not add the step: ${(e as Error).message}`); return null; }
+    },
+    removeStep: (pid, stepId, view) =>
+      mutate((s) => s, () => call("DELETE", `${base}/processes/${pid}/steps/${stepId}?view=${view}`)),
+    restoreStep: (pid, stepId) => mutate((s) => s, () => call("POST", `${base}/processes/${pid}/steps/${stepId}/restore`)),
+    addEdge: (pid, from, to) =>
+      mutate(
+        patchProcess(pid, (p) => (p.edges.some((e) => e.from === from && e.to === to) ? p : { ...p, edges: [...p.edges, { id: `pending-${from}-${to}`, from, to }] })),
+        () => call("POST", `${base}/processes/${pid}/edges`, { from, to }),
+      ),
+    removeEdge: (pid, edgeId) =>
+      mutate(patchProcess(pid, (p) => ({ ...p, edges: p.edges.filter((e) => e.id !== edgeId) })), () => call("DELETE", `${base}/processes/${pid}/edges/${edgeId}`)),
   }), [slug, base, state, error, pending, mutate]);
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;

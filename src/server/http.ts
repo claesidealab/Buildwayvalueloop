@@ -48,10 +48,40 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
   }
 }
 
+const rating = z.enum(["low", "medium", "high"]);
+const fitPatch = z.object({ volume: rating, ruleBased: rating, dataReady: rating, errorRisk: rating }).partial().strict();
+const stepName = z.string().trim().min(1).max(60);
+
 export const stepPatchSchema = z
-  .object({ autonomy: z.number().int().min(0).max(4).optional(), isSystem: z.boolean().optional() })
+  .object({
+    autonomy: z.number().int().min(0).max(4),
+    isSystem: z.boolean(),
+    name: stepName,
+    description: z.string().max(500),
+    minutesPerCase: z.number().min(0).max(1440),
+    caseShare: z.number().min(0).max(100),
+    x: z.number().min(-100_000).max(100_000),
+    fit: fitPatch,
+  })
+  .partial()
   .strict()
-  .refine((v) => v.autonomy !== undefined || v.isSystem !== undefined, "Send autonomy or isSystem");
+  .refine((v) => Object.keys(v).length > 0, "Send at least one field");
+
+export const newStepSchema = z
+  .object({
+    name: stepName,
+    view: z.enum(["as-is", "to-be"]),
+    description: z.string().max(500).optional(),
+    minutesPerCase: z.number().min(0).max(1440).optional(),
+    caseShare: z.number().min(0).max(100).optional(),
+    x: z.number().min(-100_000).max(100_000).optional(),
+    autonomy: z.number().int().min(0).max(4).optional(),
+    isSystem: z.boolean().optional(),
+    fit: fitPatch.optional(),
+  })
+  .strict();
+
+export const edgeSchema = z.object({ from: z.string().min(1).max(64), to: z.string().min(1).max(64) }).strict();
 
 export const assumptionsPatchSchema = z
   .object({

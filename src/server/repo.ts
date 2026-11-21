@@ -3,13 +3,13 @@
  * and every query filters on workspace_id. Value cases are always computed here with the
  * domain model, never taken from the client.
  */
-import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import type { DB } from "./db";
-import { actuals, auditLog, baselines, designSteps, designs, memberships, processes, steps, users, workspaces } from "./db/schema";
+import { actuals, auditLog, baselines, designSteps, designs, memberships, processEdges, processes, steps, users, workspaces } from "./db/schema";
 import type { ActualPoint } from "@/domain/actuals";
-import type { Assumptions, AutonomyLevel, Baseline, ProcessDesign, Stage, StepDefinition } from "@/domain/types";
+import type { Assumptions, AutonomyLevel, Baseline, FitFactors, ProcessDesign, ProcessEdge, Stage, StepDefinition, StepPhase } from "@/domain/types";
 import { computeValueCase } from "@/domain/value-model";
-import type { AssumptionsPatch, ProcessInstance, StepPatch, WorkspaceState } from "@/lib/api-types";
+import type { AssumptionsPatch, NewStep, ProcessInstance, StepPatch, WorkspaceState } from "@/lib/api-types";
 import { customerService } from "@/templates";
 
 export class NotFoundError extends Error {}
@@ -22,6 +22,14 @@ const toStage = (s: "not_started" | "find" | "build" | "run"): Stage => (s === "
 const fromStage = (s: Stage): "not_started" | "find" | "build" | "run" => (s === "not-started" ? "not_started" : s);
 
 /* ---------- reads ---------- */
+
+type StepRow = typeof steps.$inferSelect;
+const toStepDef = (s: StepRow): StepDefinition => ({
+  id: s.key, name: s.name, description: s.description, minutesPerCase: s.minutesPerCase,
+  caseShare: s.caseShare, phase: s.phase, x: s.posX,
+  fit: { volume: s.fitVolume, ruleBased: s.fitRuleBased, dataReady: s.fitDataReady, errorRisk: s.fitErrorRisk },
+});
+const activeSteps = (rows: StepRow[]) => rows.filter((s) => !s.archivedAt).sort((a, b) => a.posX - b.posX || a.position - b.position);
 
 async function workspaceBySlug(q: Q, slug: string) {
   const [ws] = await q.select().from(workspaces).where(eq(workspaces.slug, slug));
@@ -65,10 +73,8 @@ export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<Wo
   const out: ProcessInstance[] = [];
   for (const p of procs) {
     const stepRows = allSteps.filter((s) => s.processId === p.id);
-    const stepDefs: StepDefinition[] = stepRows.map((s) => ({
-      id: s.key, name: s.name, description: s.description, minutesPerCase: s.minutesPerCase,
-      fit: { volume: s.fitVolume, ruleBased: s.fitRuleBased, dataReady: s.fitDataReady, errorRisk: s.fitErrorRisk },
-    }));
+    const live = activeSteps(stepRows);
+    const stepDefs: StepDefinition[] = live.map(toStepDef);
     const [draft] = await db.select().from(designs).where(and(eq(designs.processId, p.id), eq(designs.status, "draft")));
     const design = draft ? await designLevels(db, draft.id, stepRows) : { levels: {}, systemSteps: [] };
 
@@ -85,6 +91,8 @@ export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<Wo
       baseline = {
         approvedAt: b.b.approvedAt.toISOString(), approvedBy: b.approver, net: b.b.netValueSek,
         design: await designLevels(db, b.d.id, stepRows), assumptions: b.d.assumptions,
+        // Baselines approved before snapshots existed fall back to today's steps.
+        steps: b.d.stepsSnapshot ?? stepDefs,
       };
     }
 
@@ -92,10 +100,16 @@ export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<Wo
     const actualRows = await db.select().from(actuals).where(and(eq(actuals.workspaceId, ws.id), eq(actuals.processId, p.id))).orderBy(asc(actuals.periodStart));
     const actualPoints: ActualPoint[] = actualRows.map((r) => ({ period: r.periodStart, metric: r.metric, step: r.stepId ? keyOfStep.get(r.stepId) ?? null : null, value: r.value }));
 
+    const liveIds = new Set(live.map((s) => s.id));
+    const edgeRows = await db.select().from(processEdges).where(and(eq(processEdges.workspaceId, ws.id), eq(processEdges.processId, p.id)));
+    const edges: ProcessEdge[] = edgeRows
+      .filter((e) => liveIds.has(e.fromStepId) && liveIds.has(e.toStepId))
+      .map((e) => ({ id: e.id, from: keyOfStep.get(e.fromStepId)!, to: keyOfStep.get(e.toStepId)!, ...(e.label ? { label: e.label } : {}) }));
+
     out.push({
       id: p.slug, name: p.name, templateId: p.templateId, templateVersion: p.templateVersion, unit: p.unit,
       stage: toStage(p.stage), gate: p.gate, note: p.note, steps: stepDefs, design,
-      assumptions: draft?.assumptions ?? customerService.defaultAssumptions, baseline, actuals: actualPoints,
+      assumptions: draft?.assumptions ?? customerService.defaultAssumptions, baseline, actuals: actualPoints, edges,
     });
   }
   return { workspace: { id: ws.slug, name: ws.name, isExample: ws.isExample }, processes: out };
@@ -111,17 +125,40 @@ export async function updateStep(db: DB, wsSlug: string, processSlug: string, st
   await db.transaction(async (tx) => {
     const ws = await workspaceBySlug(tx, wsSlug);
     const p = await processBySlug(tx, ws.id, processSlug);
-    const [step] = await tx.select().from(steps).where(and(eq(steps.processId, p.id), eq(steps.key, stepKey)));
-    if (!step) throw new NotFoundError(`Step ${stepKey} not found`);
+    const step = await stepByKey(tx, p.id, stepKey);
     const draft = await draftOf(tx, ws.id, p.id);
-    const [cur] = await tx.select().from(designSteps).where(and(eq(designSteps.designId, draft.id), eq(designSteps.stepId, step.id)));
-    const autonomy = patch.autonomy ?? ((cur?.autonomy ?? 0) as AutonomyLevel);
-    // Only L4 steps can run as rule-based systems.
-    const isSystem = autonomy >= 4 ? (patch.isSystem ?? cur?.isSystem ?? false) : false;
-    await tx.insert(designSteps).values({ designId: draft.id, stepId: step.id, autonomy, isSystem })
-      .onConflictDoUpdate({ target: [designSteps.designId, designSteps.stepId], set: { autonomy, isSystem } });
+
+    // Step definition: name, times, share of cases, fit, canvas position.
+    const def: Partial<typeof steps.$inferInsert> = {};
+    if (patch.name !== undefined) def.name = patch.name;
+    if (patch.description !== undefined) def.description = patch.description;
+    if (patch.minutesPerCase !== undefined) def.minutesPerCase = patch.minutesPerCase;
+    if (patch.caseShare !== undefined) def.caseShare = patch.caseShare;
+    if (patch.x !== undefined) def.posX = patch.x;
+    if (patch.fit) {
+      if (patch.fit.volume) def.fitVolume = patch.fit.volume;
+      if (patch.fit.ruleBased) def.fitRuleBased = patch.fit.ruleBased;
+      if (patch.fit.dataReady) def.fitDataReady = patch.fit.dataReady;
+      if (patch.fit.errorRisk) def.fitErrorRisk = patch.fit.errorRisk;
+    }
+    if (Object.keys(def).length) {
+      await tx.update(steps).set(def).where(eq(steps.id, step.id));
+      // Moving a step on the canvas is too frequent to be worth logging; everything else is.
+      const logged = Object.keys(def).filter((k) => k !== "posX");
+      if (logged.length) await audit(tx, ws.id, actorId, "step.edited", { process: processSlug, step: stepKey, changes: Object.fromEntries(logged.map((k) => [k, (def as Record<string, unknown>)[k]])) });
+    }
+
+    // Autonomy in the draft design.
+    if (patch.autonomy !== undefined || patch.isSystem !== undefined) {
+      const [cur] = await tx.select().from(designSteps).where(and(eq(designSteps.designId, draft.id), eq(designSteps.stepId, step.id)));
+      const autonomy = patch.autonomy ?? ((cur?.autonomy ?? 0) as AutonomyLevel);
+      // Only L4 steps can run as rule-based systems.
+      const isSystem = autonomy >= 4 ? (patch.isSystem ?? cur?.isSystem ?? false) : false;
+      await tx.insert(designSteps).values({ designId: draft.id, stepId: step.id, autonomy, isSystem })
+        .onConflictDoUpdate({ target: [designSteps.designId, designSteps.stepId], set: { autonomy, isSystem } });
+      await audit(tx, ws.id, actorId, "design.step_changed", { process: processSlug, step: stepKey, from: cur ? { autonomy: cur.autonomy, isSystem: cur.isSystem } : null, to: { autonomy, isSystem } });
+    }
     await tx.update(designs).set({ updatedAt: new Date() }).where(eq(designs.id, draft.id));
-    await audit(tx, ws.id, actorId, "design.step_changed", { process: processSlug, step: stepKey, from: cur ? { autonomy: cur.autonomy, isSystem: cur.isSystem } : null, to: { autonomy, isSystem } });
   });
 }
 
@@ -136,24 +173,114 @@ export async function updateAssumptions(db: DB, wsSlug: string, processSlug: str
   });
 }
 
+async function stepByKey(q: Q, processId: string, key: string) {
+  const [step] = await q.select().from(steps).where(and(eq(steps.processId, processId), eq(steps.key, key), isNull(steps.archivedAt)));
+  if (!step) throw new NotFoundError(`Step ${key} not found`);
+  return step;
+}
+
+const slugify = (name: string) =>
+  name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "step";
+
+const DEFAULT_FIT: FitFactors = { volume: "medium", ruleBased: "medium", dataReady: "medium", errorRisk: "medium" };
+
+/** Adds a step. In the to-be view it is new in the redesign; in the as-is view it exists in both. Returns its key. */
+export async function addStep(db: DB, wsSlug: string, processSlug: string, input: NewStep, actorId: string | null): Promise<string> {
+  return db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const draft = await draftOf(tx, ws.id, p.id);
+    const existing = await tx.select({ key: steps.key, position: steps.position, posX: steps.posX }).from(steps).where(eq(steps.processId, p.id));
+    const taken = new Set(existing.map((s) => s.key));
+    const base = slugify(input.name);
+    let key = base;
+    for (let n = 2; taken.has(key); n++) key = `${base}-${n}`;
+    const position = existing.reduce((m, s) => Math.max(m, s.position), -1) + 1;
+    const x = input.x ?? existing.reduce((m, s) => Math.max(m, s.posX), -220) + 220;
+    const phase: StepPhase = input.view === "to-be" ? "to-be" : "both";
+    const fit = { ...DEFAULT_FIT, ...input.fit };
+    const [row] = await tx.insert(steps).values({
+      workspaceId: ws.id, processId: p.id, key, name: input.name, description: input.description ?? "", position, posX: x,
+      minutesPerCase: input.minutesPerCase ?? 1, caseShare: input.caseShare ?? 100, phase,
+      fitVolume: fit.volume, fitRuleBased: fit.ruleBased, fitDataReady: fit.dataReady, fitErrorRisk: fit.errorRisk,
+    }).returning();
+    const autonomy = input.autonomy ?? 0;
+    await tx.insert(designSteps).values({ designId: draft.id, stepId: row.id, autonomy, isSystem: autonomy >= 4 && !!input.isSystem });
+    await audit(tx, ws.id, actorId, "step.added", { process: processSlug, step: key, name: input.name, phase });
+    return key;
+  });
+}
+
+/**
+ * Removes a step from one view of the process.
+ * To-be view: a step in both versions becomes "removed in the redesign"; a new step is deleted.
+ * As-is view: a step in both versions becomes "new in the redesign"; a step only in today's process is deleted.
+ * Deleted steps are archived, so baselines and uploaded figures that use them still resolve.
+ */
+export async function removeStep(db: DB, wsSlug: string, processSlug: string, stepKey: string, view: "as-is" | "to-be", actorId: string | null) {
+  await db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const step = await stepByKey(tx, p.id, stepKey);
+    let result: "archived" | StepPhase;
+    if (step.phase === "both") result = view === "to-be" ? "as-is" : "to-be";
+    else if (step.phase === view) result = "archived";
+    else throw new ConflictError(`${step.name} isn't in the ${view} process`);
+    if (result === "archived") await tx.update(steps).set({ archivedAt: new Date() }).where(eq(steps.id, step.id));
+    else await tx.update(steps).set({ phase: result }).where(eq(steps.id, step.id));
+    await audit(tx, ws.id, actorId, "step.removed", { process: processSlug, step: stepKey, name: step.name, view, result });
+  });
+}
+
+/** Puts a step removed in the redesign back into the to-be process. */
+export async function restoreStep(db: DB, wsSlug: string, processSlug: string, stepKey: string, actorId: string | null) {
+  await db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const step = await stepByKey(tx, p.id, stepKey);
+    if (step.phase !== "as-is") throw new ConflictError(`${step.name} is already in the redesign`);
+    await tx.update(steps).set({ phase: "both" }).where(eq(steps.id, step.id));
+    await audit(tx, ws.id, actorId, "step.restored", { process: processSlug, step: stepKey, name: step.name });
+  });
+}
+
+export async function addEdge(db: DB, wsSlug: string, processSlug: string, fromKey: string, toKey: string, actorId: string | null) {
+  if (fromKey === toKey) throw new ConflictError("An arrow needs two different steps");
+  await db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const from = await stepByKey(tx, p.id, fromKey);
+    const to = await stepByKey(tx, p.id, toKey);
+    await tx.insert(processEdges).values({ workspaceId: ws.id, processId: p.id, fromStepId: from.id, toStepId: to.id }).onConflictDoNothing();
+    await audit(tx, ws.id, actorId, "edge.added", { process: processSlug, from: fromKey, to: toKey });
+  });
+}
+
+export async function removeEdge(db: DB, wsSlug: string, processSlug: string, edgeId: string, actorId: string | null) {
+  await db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const removed = await tx.delete(processEdges).where(and(eq(processEdges.workspaceId, ws.id), eq(processEdges.processId, p.id), eq(processEdges.id, edgeId))).returning();
+    if (!removed.length) throw new NotFoundError("Arrow not found");
+    await audit(tx, ws.id, actorId, "edge.removed", { process: processSlug });
+  });
+}
+
 /** Snapshot the draft as an approved design and record a baseline with a server-computed value case. */
 export async function approveBaseline(db: DB, wsSlug: string, processSlug: string, actorId: string) {
   return db.transaction(async (tx) => {
     const ws = await workspaceBySlug(tx, wsSlug);
     const p = await processBySlug(tx, ws.id, processSlug);
     const draft = await draftOf(tx, ws.id, p.id);
-    const stepRows = await tx.select().from(steps).where(eq(steps.processId, p.id)).orderBy(asc(steps.position));
+    const stepRows = activeSteps(await tx.select().from(steps).where(eq(steps.processId, p.id)));
     if (!stepRows.length) throw new ConflictError("Process has no steps to value");
     const design = await designLevels(tx, draft.id, stepRows);
-    const defs: StepDefinition[] = stepRows.map((s) => ({
-      id: s.key, name: s.name, description: s.description, minutesPerCase: s.minutesPerCase,
-      fit: { volume: s.fitVolume, ruleBased: s.fitRuleBased, dataReady: s.fitDataReady, errorRisk: s.fitErrorRisk },
-    }));
+    const defs: StepDefinition[] = stepRows.map(toStepDef);
     const value = computeValueCase(defs, design, draft.assumptions);
 
     const [{ v }] = await tx.select({ v: max(designs.version) }).from(designs).where(eq(designs.processId, p.id));
     const [approved] = await tx.insert(designs).values({
-      workspaceId: ws.id, processId: p.id, version: (v ?? 0) + 1, status: "approved", assumptions: draft.assumptions, createdBy: actorId,
+      workspaceId: ws.id, processId: p.id, version: (v ?? 0) + 1, status: "approved", assumptions: draft.assumptions, stepsSnapshot: defs, createdBy: actorId,
     }).returning();
     const draftSteps = await tx.select().from(designSteps).where(eq(designSteps.designId, draft.id));
     if (draftSteps.length) await tx.insert(designSteps).values(draftSteps.map((r) => ({ ...r, designId: approved.id })));
@@ -270,12 +397,15 @@ export async function seedExample(db: DB): Promise<boolean> {
     }).returning();
     const stepRows = await tx.insert(steps).values(tpl.steps.map((s, i) => ({
       workspaceId: ws.id, processId: cs.id, key: s.id, name: s.name, description: s.description, position: i, minutesPerCase: s.minutesPerCase,
+      caseShare: s.caseShare ?? 100, posX: i * 220,
       fitVolume: s.fit.volume, fitRuleBased: s.fit.ruleBased, fitDataReady: s.fit.dataReady, fitErrorRisk: s.fit.errorRisk,
     }))).returning();
     const [draft] = await tx.insert(designs).values({ workspaceId: ws.id, processId: cs.id, version: 1, status: "draft", assumptions: tpl.defaultAssumptions, createdBy: advisorId }).returning();
     await tx.insert(designSteps).values(stepRows.map((s) => ({
       designId: draft.id, stepId: s.id, autonomy: tpl.defaultDesign.levels[s.key] ?? 0, isSystem: tpl.defaultDesign.systemSteps.includes(s.key),
     })));
+    const ordered = [...stepRows].sort((a, b) => a.position - b.position);
+    await tx.insert(processEdges).values(ordered.slice(1).map((s, i) => ({ workspaceId: ws.id, processId: cs.id, fromStepId: ordered[i].id, toStepId: s.id })));
 
     const others: Array<[string, string, Stage, "red" | "amber" | "green", string]> = [
       ["it-service-desk", "IT service desk", "build", "amber", "Gate: data readiness"],

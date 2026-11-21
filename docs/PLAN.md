@@ -72,6 +72,7 @@ Land with advisory, expand with licences, retain with managed services.
 - [x] Domain model and value model with tests
 - [x] Customer service template v1
 - [x] Screens: overview, templates, redesign canvas, agent fit, value case, monitor
+- [x] Drag-and-drop process map: move steps and change lanes, draw arrows, add, edit and remove steps, share of cases per step, as-is and to-be can differ
 - [x] Postgres persistence and API, with audit log and server-computed baselines
 - [x] Sign-in (Microsoft, Google, developer sign-in), workspaces, roles and invitations
 - [ ] Draft an as-is map from SOPs and interview notes with Claude

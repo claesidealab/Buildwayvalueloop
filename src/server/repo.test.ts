@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { DB } from "./db";
 import { createTestDb } from "./test-db";
 import { auditLog, designSteps, workspaces } from "./db/schema";
-import { approveBaseline, clearActuals, importActuals, listActivity, listBaselines, ConflictError, ensureAdvisor, EXAMPLE_WORKSPACE as WS, getWorkspaceState, NotFoundError, resetExample, seedExample, updateAssumptions, updateStep } from "./repo";
+import { addEdge, addStep, removeEdge, removeStep, restoreStep, approveBaseline, clearActuals, importActuals, listActivity, listBaselines, ConflictError, ensureAdvisor, EXAMPLE_WORKSPACE as WS, getWorkspaceState, NotFoundError, resetExample, seedExample, updateAssumptions, updateStep } from "./repo";
 import { computeValueCase } from "@/domain/value-model";
 import { customerService } from "@/templates";
 
@@ -148,5 +148,74 @@ describe("history", () => {
     const acts = await listActivity(db, WS);
     expect(acts.map((a) => a.action)).toEqual(["baseline.approved", "design.step_changed", "baseline.approved"]);
     expect(acts[1].actor).toBe("Buildway advisor");
+  });
+});
+
+describe("editing the process map", () => {
+  it("seeds positions and arrows in order", async () => {
+    const p = await cs();
+    expect(p.steps.map((s) => s.x)).toEqual([0, 220, 440, 660, 880, 1100, 1320, 1540]);
+    expect(p.edges.map((e) => `${e.from}>${e.to}`)).toEqual(["intake>triage", "triage>identify", "identify>knowledge", "knowledge>resolve", "resolve>escalate", "escalate>close", "close>review"]);
+    expect(p.steps.find((s) => s.id === "escalate")?.caseShare).toBe(20);
+  });
+
+  it("edits a step's definition and position", async () => {
+    await updateStep(db, WS, "customer-service", "resolve", { name: "Solve", minutesPerCase: 5, caseShare: 80, x: 900, fit: { errorRisk: "low" } }, advisor);
+    const r = (await cs()).steps.find((s) => s.id === "resolve")!;
+    expect(r).toMatchObject({ name: "Solve", minutesPerCase: 5, caseShare: 80, x: 900 });
+    expect(r.fit.errorRisk).toBe("low");
+    expect(r.fit.volume).toBe("high");
+  });
+
+  it("refuses an out-of-range case share at the database level", async () => {
+    await expect(updateStep(db, WS, "customer-service", "resolve", { caseShare: 150 }, advisor)).rejects.toThrow();
+  });
+
+  it("adds a step with a unique key; new in the redesign when added in the to-be view", async () => {
+    const k1 = await addStep(db, WS, "customer-service", { name: "Call back", view: "to-be", autonomy: 3 }, advisor);
+    const k2 = await addStep(db, WS, "customer-service", { name: "Call back", view: "as-is" }, advisor);
+    expect([k1, k2]).toEqual(["call-back", "call-back-2"]);
+    const p = await cs();
+    expect(p.steps.find((s) => s.id === k1)).toMatchObject({ phase: "to-be", x: 1760 });
+    expect(p.steps.find((s) => s.id === k2)?.phase).toBe("both");
+    expect(p.design.levels[k1]).toBe(3);
+  });
+
+  it("removes a step from the redesign, restores it, and archives steps that are in no version", async () => {
+    await removeStep(db, WS, "customer-service", "identify", "to-be", advisor);
+    expect((await cs()).steps.find((s) => s.id === "identify")?.phase).toBe("as-is");
+    await restoreStep(db, WS, "customer-service", "identify", advisor);
+    expect((await cs()).steps.find((s) => s.id === "identify")?.phase).toBe("both");
+
+    const key = await addStep(db, WS, "customer-service", { name: "Temp", view: "to-be" }, advisor);
+    await removeStep(db, WS, "customer-service", key, "to-be", advisor);
+    const p = await cs();
+    expect(p.steps.some((s) => s.id === key)).toBe(false);
+    await expect(updateStep(db, WS, "customer-service", key, { name: "x" }, advisor)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("hides arrows to archived steps and adds and removes arrows", async () => {
+    await addEdge(db, WS, "customer-service", "resolve", "close", advisor);
+    let p = await cs();
+    expect(p.edges.some((e) => e.from === "resolve" && e.to === "close")).toBe(true);
+    await expect(addEdge(db, WS, "customer-service", "resolve", "resolve", advisor)).rejects.toBeInstanceOf(ConflictError);
+    await removeEdge(db, WS, "customer-service", p.edges.find((e) => e.from === "resolve" && e.to === "close")!.id, advisor);
+    const key = await addStep(db, WS, "customer-service", { name: "Temp", view: "to-be" }, advisor);
+    await addEdge(db, WS, "customer-service", "close", key, advisor);
+    await removeStep(db, WS, "customer-service", key, "to-be", advisor);
+    p = await cs();
+    expect(p.edges.some((e) => e.to === key)).toBe(false);
+  });
+
+  it("keeps a baseline's steps frozen when the map changes later", async () => {
+    const before = await cs();
+    const net = computeValueCase(before.steps, before.design, before.assumptions).net;
+    await approveBaseline(db, WS, "customer-service", advisor);
+    await updateStep(db, WS, "customer-service", "resolve", { minutesPerCase: 10 }, advisor);
+    await removeStep(db, WS, "customer-service", "identify", "to-be", advisor);
+    const after = await cs();
+    expect(after.baseline!.steps.find((s) => s.id === "resolve")?.minutesPerCase).toBe(4);
+    expect(after.baseline!.steps.find((s) => s.id === "identify")?.phase).toBe("both");
+    expect(computeValueCase(after.baseline!.steps, after.baseline!.design, after.baseline!.assumptions).net).toBeCloseTo(net, 6);
   });
 });

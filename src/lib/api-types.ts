@@ -1,5 +1,5 @@
 /** Shapes exchanged between the API and the client. No React or server imports here. */
-import type { Assumptions, AutonomyLevel, Baseline, Gate, ProcessDesign, Role, Stage, StepDefinition } from "@/domain/types";
+import type { Assumptions, AutonomyLevel, Baseline, FitFactors, Gate, ProcessDesign, ProcessEdge, Role, Stage, StepDefinition } from "@/domain/types";
 import type { Permission } from "@/domain/permissions";
 import type { ActualPoint } from "@/domain/actuals";
 
@@ -19,6 +19,8 @@ export interface ProcessInstance {
   baseline: Baseline | null;
   /** Measured results after go-live, oldest first. */
   actuals: ActualPoint[];
+  /** Arrows on the process map. */
+  edges: ProcessEdge[];
 }
 
 export interface WorkspaceState {
@@ -38,5 +40,27 @@ export interface MembersResponse {
   invitations: Array<{ id: string; email: string; role: Role; createdAt: string }>;
 }
 
-export type StepPatch = { autonomy?: AutonomyLevel; isSystem?: boolean };
+export type StepPatch = {
+  autonomy?: AutonomyLevel;
+  isSystem?: boolean;
+  name?: string;
+  description?: string;
+  minutesPerCase?: number;
+  caseShare?: number;
+  x?: number;
+  fit?: Partial<FitFactors>;
+};
+
+export type NewStep = {
+  name: string;
+  /** Which view the step was added in. */
+  view: "as-is" | "to-be";
+  description?: string;
+  minutesPerCase?: number;
+  caseShare?: number;
+  x?: number;
+  autonomy?: AutonomyLevel;
+  isSystem?: boolean;
+  fit?: Partial<FitFactors>;
+};
 export type AssumptionsPatch = Partial<Assumptions>;

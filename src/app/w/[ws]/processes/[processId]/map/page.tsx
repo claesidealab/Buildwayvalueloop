@@ -1,119 +1,185 @@
 "use client";
 
 import Link from "next/link";
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useProcess } from "@/lib/useProcess";
-import { AUTONOMY_LEVELS, laneOf } from "@/domain/autonomy";
+import { AUTONOMY_LEVELS } from "@/domain/autonomy";
 import { fitScore, suggestedLevel } from "@/domain/fit";
 import { formatInt, formatMSEK } from "@/domain/value-model";
-import type { AutonomyLevel, Lane } from "@/domain/types";
+import type { AutonomyLevel, FitFactors, Rating, StepDefinition } from "@/domain/types";
 import { PageHead } from "@/components/ui";
 import { NotFound } from "@/components/NotFound";
+import { ProcessCanvas } from "@/components/ProcessCanvas";
 
-const LANES: Array<{ key: Lane; label: string; dot: string }> = [
-  { key: "human", label: "Human", dot: "d-run" },
-  { key: "agent", label: "AI agent", dot: "d-build" },
-  { key: "system", label: "System", dot: "d-find" },
-];
+const FIT_LABELS: Array<[keyof FitFactors, string]> = [["volume", "Volume"], ["ruleBased", "Rule-based"], ["dataReady", "Data ready"], ["errorRisk", "Error risk"]];
+const RATINGS: Rating[] = ["low", "medium", "high"];
+
+/** Text or number field that saves when you leave it (or press Enter). */
+function Field({ id, label, value, onSave, type = "text", disabled, suffix, min, max, step }: {
+  id: string; label: string; value: string | number; onSave: (v: string) => void; type?: "text" | "number" | "textarea";
+  disabled?: boolean; suffix?: string; min?: number; max?: number; step?: number;
+}) {
+  const [v, setV] = useState(String(value));
+  useEffect(() => setV(String(value)), [value]);
+  const commit = () => { if (v.trim() !== String(value)) onSave(v.trim()); };
+  return (
+    <label className="field" htmlFor={id}>
+      <span>{label}</span>
+      {type === "textarea" ? (
+        <textarea id={id} rows={2} value={v} disabled={disabled} onChange={(e) => setV(e.target.value)} onBlur={commit} />
+      ) : (
+        <span className="field-row">
+          <input id={id} type={type} value={v} disabled={disabled} min={min} max={max} step={step}
+            onChange={(e) => setV(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+          {suffix && <span className="muted">{suffix}</span>}
+        </span>
+      )}
+    </label>
+  );
+}
 
 export default function MapPage({ params }: { params: Promise<{ processId: string }> }) {
   const { processId } = use(params);
-  const { process, value, loading, setLevel, setSystemStep, can, path } = useProcess(processId);
-  const editable = can("design.edit");
+  const { process, value, loading, can, path, patchStep, addStep, removeStep, restoreStep, addEdge, removeEdge } = useProcess(processId);
   const initial = useSearchParams().get("step");
-  const [mode, setMode] = useState<"asis" | "tobe">("tobe");
-  const [sel, setSel] = useState<string>(initial ?? "resolve");
+  const [view, setView] = useState<"as-is" | "to-be">("to-be");
+  const [sel, setSel] = useState<string | null>(initial ?? "resolve");
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  useEffect(() => setConfirmRemove(false), [sel, view]);
   if (loading) return null;
   if (!process || !value) return <NotFound />;
 
-  const tobe = mode === "tobe";
-  const step = process.steps.find((s) => s.id === sel) ?? process.steps[0];
-  const sv = value.steps.find((s) => s.step.id === step.id)!;
+  const editable = can("design.edit");
+  const tobe = view === "to-be";
+  const inView = (s: StepDefinition) => (tobe ? s.phase !== "as-is" : s.phase !== "to-be");
+  const step = process.steps.find((s) => s.id === sel && inView(s)) ?? null;
+  const sv = step ? value.steps.find((v) => v.step.id === step.id) : undefined;
+  const removed = process.steps.filter((s) => s.phase === "as-is");
+  const added = process.steps.filter((s) => s.phase === "to-be");
   const perYear = process.assumptions.casesPerMonth * 12;
+  const num = (v: string, fallback: number) => { const n = Number(v.replace(",", ".")); return Number.isFinite(n) ? n : fallback; };
+
+  const onAdd = async () => {
+    const id = await addStep(process.id, { name: "New step", view, minutesPerCase: 1, autonomy: 0 });
+    if (id) setSel(id);
+  };
 
   return (
     <>
-      <PageHead dot="find" eyebrow={`Find · ${process.name}`} title="Map and redesign" sub="Click a step to set who does it and at what autonomy. Value updates as you go." />
-      <div className="canvas-grid">
+      <PageHead dot="find" eyebrow={`Find · ${process.name}`} title="Map and redesign"
+        sub={editable ? "Drag steps to reorder them or move them between lanes. Drag from a step's right edge to another step to draw an arrow." : "The process before and after the redesign."} />
+      <div className="map-grid">
         <section className="panel">
           <div className="toolbar">
             <div className="seg" role="group" aria-label="Version">
-              <button aria-pressed={!tobe} onClick={() => setMode("asis")}>As-is</button>
-              <button aria-pressed={tobe} onClick={() => setMode("tobe")}>To-be</button>
+              <button aria-pressed={!tobe} onClick={() => setView("as-is")}>As-is</button>
+              <button aria-pressed={tobe} onClick={() => setView("to-be")}>To-be</button>
             </div>
-            <div className="key"><span><i className="dot d-run" />Human</span><span><i className="dot d-build" />AI agent</span><span><i className="dot d-find" />System</span></div>
+            {editable && <button className="btn btn-sm" onClick={onAdd}>+ Add step</button>}
+            <div className="key">
+              {tobe ? <><span><i className="dot d-run" />Human</span><span><i className="dot d-build" />AI agent</span><span><i className="dot d-find" />System</span></> : <span>Today, people do every step</span>}
+            </div>
           </div>
-          <div className="scroller">
-            <div className="lanes">
-              <div className="hd" />
-              {process.steps.map((s) => <div key={s.id} className={`hd ${s.id === step.id ? "sel" : ""}`}>{s.name}</div>)}
-              {LANES.map((ln, i) => (
-                <div key={ln.key} style={{ display: "contents" }}>
-                  <div className={`lk ${i % 2 ? "alt" : ""}`}><i className={`dot ${ln.dot}`} />{ln.label}</div>
-                  {process.steps.map((s) => {
-                    const level = tobe ? (process.design.levels[s.id] ?? 0) : 0;
-                    const lane = tobe ? laneOf(s.id, level, process.design) : "human";
-                    return (
-                      <div key={s.id} className={`cell ${i % 2 ? "alt" : ""}`}>
-                        {lane === ln.key && (
-                          <button className={`step s-${lane} ${s.id === step.id ? "sel" : ""}`} onClick={() => setSel(s.id)} aria-label={`${s.name}, level ${level}`}>
-                            <b>L{level}</b>{s.name}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
+          <p className="muted canvas-hint">Scroll or drag the background to move around; the corner button fits the whole process.</p>
+          <ProcessCanvas
+            process={process} value={value} view={view} editable={editable} selected={step?.id ?? null}
+            onSelect={setSel}
+            onPatch={(id, patch) => patchStep(process.id, id, patch)}
+            onConnect={(from, to) => addEdge(process.id, from, to)}
+            onRemoveEdge={(id) => removeEdge(process.id, id)}
+          />
+          {tobe && (removed.length > 0 || added.length > 0) && (
+            <div className="changes">
+              {removed.length > 0 && (
+                <div><span className="label">Removed in the redesign</span>
+                  <div className="chips">{removed.map((s) => (
+                    <span key={s.id} className="chip-removed"><s>{s.name}</s>{editable && <button className="linkbtn" onClick={() => restoreStep(process.id, s.id)}>Put back</button>}</span>
+                  ))}</div>
                 </div>
-              ))}
+              )}
+              {added.length > 0 && <div><span className="label">New in the redesign</span><div className="chips">{added.map((s) => <button key={s.id} className="chip-added" onClick={() => setSel(s.id)}>{s.name}</button>)}</div></div>}
             </div>
-          </div>
+          )}
           <div className="summary">
-            <div><small>Net value / yr</small><b className="num">{tobe ? `${formatMSEK(value.net)} MSEK` : "—"}</b></div>
-            <div><small>Steps done by people</small><b className="num">{tobe ? value.stepsDoneByPeople : process.steps.length} of {process.steps.length}</b></div>
-            <div><small>Hours released / yr</small><b className="num">{tobe ? formatInt(value.hoursReleased) : 0}</b></div>
+            <div><small>Net value / yr</small><b className="num">{formatMSEK(value.net)} MSEK</b></div>
+            <div><small>Steps done by people</small><b className="num">{tobe ? value.stepsDoneByPeople : process.steps.filter(inView).length} of {process.steps.filter(inView).length}</b></div>
+            <div><small>Hours released / yr</small><b className="num">{formatInt(value.hoursReleased)}</b></div>
             <div className="go"><Link className="btn" href={path(`/processes/${process.id}/value`)}>Open value case</Link></div>
           </div>
         </section>
 
-        <aside className="panel insp">
-          <p className="label">{tobe ? "Selected step" : "As-is"}</p>
-          <h2>{step.name}</h2>
-          <p className="muted">{step.description}</p>
-          {tobe ? (
+        <aside className="panel insp insp-wide">
+          {!step ? (
             <>
-              <div>
-                <p className="label" style={{ marginBottom: 8 }}>Autonomy</p>
-                <div className="levels" role="group" aria-label="Autonomy level">
-                  {AUTONOMY_LEVELS.map((L) => (
-                    <button key={L.level} disabled={!editable} aria-pressed={L.level === sv.level} title={`${L.name}: ${L.description}`} onClick={() => setLevel(process.id, step.id, L.level as AutonomyLevel)}>
-                      <b>L{L.level}</b><span>{L.short}</span>
-                    </button>
-                  ))}
-                </div>
-                <p className="muted" style={{ marginTop: 8, fontSize: 14 }}><b>{AUTONOMY_LEVELS[sv.level].name}.</b> {AUTONOMY_LEVELS[sv.level].description}</p>
-              </div>
-              <label className="check">
-                <input type="checkbox" checked={process.design.systemSteps.includes(step.id)} disabled={!editable || sv.level < 4} onChange={(e) => setSystemStep(process.id, step.id, e.target.checked)} />
-                Run as a rule-based system, not an AI agent
-              </label>
-              <dl className="kv">
-                <dt>Done by</dt><dd>{sv.lane === "agent" ? "AI agent" : sv.lane === "system" ? "System" : sv.level ? "Human with AI help" : "Human"}</dd>
-                <dt>Handling time today</dt><dd className="num">{step.minutesPerCase.toFixed(1)} min / {process.unit}</dd>
-                <dt>Share automated</dt><dd className="num">{Math.round(sv.automatedShare * 100)}%</dd>
-                <dt>Hours released / yr</dt><dd className="num">{formatInt(sv.hoursReleased)}</dd>
-                <dt>Agent fit score</dt><dd className="num">{fitScore(step.fit)} · suggests L{suggestedLevel(step.fit)}</dd>
-              </dl>
-              {fitScore(step.fit) < 60 && <p className="note">Low fit: high error risk and few fixed rules. Keep a person in charge.</p>}
+              <p className="label">Inspector</p>
+              <p className="muted">Select a step on the map to see and edit it.{editable ? " Select an arrow and press Delete, or use Remove arrow, to take it away." : ""}</p>
             </>
           ) : (
             <>
+              <p className="label">{tobe ? (step.phase === "to-be" ? "New step in the redesign" : "Step in the redesign") : "Step today"}</p>
+              <Field id="step-name" label="Name" value={step.name} disabled={!editable} onSave={(v) => v && patchStep(process.id, step.id, { name: v })} />
+              <Field id="step-desc" label="What happens" type="textarea" value={step.description} disabled={!editable} onSave={(v) => patchStep(process.id, step.id, { description: v })} />
+              <div className="field-pair">
+                <Field id="step-min" label="Time when done by a person" type="number" min={0} max={1440} step={0.1} suffix={`min / ${process.unit}`} value={step.minutesPerCase} disabled={!editable}
+                  onSave={(v) => patchStep(process.id, step.id, { minutesPerCase: Math.max(0, num(v, step.minutesPerCase)) })} />
+                <Field id="step-share" label="Share of cases" type="number" min={0} max={100} step={1} suffix="%" value={step.caseShare ?? 100} disabled={!editable}
+                  onSave={(v) => patchStep(process.id, step.id, { caseShare: Math.min(100, Math.max(0, num(v, step.caseShare ?? 100))) })} />
+              </div>
+
+              {tobe && sv && (
+                <div>
+                  <p className="label" style={{ marginBottom: 8 }}>Autonomy</p>
+                  <div className="levels" role="group" aria-label="Autonomy level">
+                    {AUTONOMY_LEVELS.map((L) => (
+                      <button key={L.level} disabled={!editable} aria-pressed={L.level === sv.level} title={`${L.name}: ${L.description}`}
+                        onClick={() => patchStep(process.id, step.id, { autonomy: L.level as AutonomyLevel })}>
+                        <b>L{L.level}</b><span>{L.short}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="muted" style={{ marginTop: 8, fontSize: 14 }}><b>{AUTONOMY_LEVELS[sv.level].name}.</b> {AUTONOMY_LEVELS[sv.level].description}</p>
+                  <label className="check" style={{ marginTop: 8 }}>
+                    <input type="checkbox" checked={process.design.systemSteps.includes(step.id)} disabled={!editable || sv.level < 4}
+                      onChange={(e) => patchStep(process.id, step.id, { isSystem: e.target.checked })} />
+                    Run as a rule-based system, not an AI agent
+                  </label>
+                </div>
+              )}
+
               <dl className="kv">
-                <dt>Done by</dt><dd>Human</dd>
-                <dt>Handling time</dt><dd className="num">{step.minutesPerCase.toFixed(1)} min / {process.unit}</dd>
-                <dt>Hours / yr</dt><dd className="num">{formatInt((perYear * step.minutesPerCase) / 60)}</dd>
+                {tobe && sv && <><dt>Done by</dt><dd>{sv.lane === "agent" ? "AI agent" : sv.lane === "system" ? "System" : sv.level ? "Person with AI help" : "Person"}</dd></>}
+                {tobe && sv && <><dt>Share automated</dt><dd className="num">{Math.round(sv.automatedShare * 100)}%</dd></>}
+                {tobe && sv ? <><dt>Hours released / yr</dt><dd className="num">{formatInt(sv.hoursReleased)}</dd></>
+                  : <><dt>Hours / yr today</dt><dd className="num">{formatInt((perYear * step.minutesPerCase * (step.caseShare ?? 100)) / 100 / 60)}</dd></>}
+                <dt>Agent fit</dt><dd className="num">{fitScore(step.fit)} · suggests L{suggestedLevel(step.fit)}</dd>
               </dl>
-              <p className="note">Switch to To-be to redesign this step.</p>
+
+              <details className="fit-edit">
+                <summary>Agent fit factors</summary>
+                <div className="fit-grid">
+                  {FIT_LABELS.map(([k, label]) => (
+                    <label key={k} className="field" htmlFor={`fit-${k}`}>
+                      <span>{label}</span>
+                      <select id={`fit-${k}`} value={step.fit[k]} disabled={!editable} onChange={(e) => patchStep(process.id, step.id, { fit: { [k]: e.target.value as Rating } })}>
+                        {RATINGS.map((r) => <option key={r} value={r}>{r[0].toUpperCase() + r.slice(1)}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+              </details>
+
+              {editable && (
+                confirmRemove ? (
+                  <div className="confirm">
+                    {tobe ? (step.phase === "to-be" ? "Delete this new step?" : "Remove this step from the redesign? Its time counts as saved.") : (step.phase === "both" ? "Remove from today's process? It stays as a new step in the redesign." : "Delete this step?")}
+                    <button className="btn btn-sm btn-pri" onClick={() => { removeStep(process.id, step.id, view); setSel(null); }}>Remove</button>
+                    <button className="btn btn-sm" onClick={() => setConfirmRemove(false)}>Keep</button>
+                  </div>
+                ) : (
+                  <button className="btn btn-sm" onClick={() => setConfirmRemove(true)}>{tobe && step.phase === "both" ? "Remove from redesign" : "Remove step"}</button>
+                )
+              )}
             </>
           )}
         </aside>

@@ -4,13 +4,14 @@
  */
 import { sql } from "drizzle-orm";
 import { check, uniqueIndex, boolean, doublePrecision, integer, jsonb, pgEnum, pgTable, primaryKey, smallint, text, timestamp, unique, uuid, bigserial, date } from "drizzle-orm/pg-core";
-import type { Assumptions } from "@/domain/types";
+import type { Assumptions, StepDefinition } from "@/domain/types";
 
 export const memberRole = pgEnum("member_role", ["advisor", "customer_admin", "process_owner", "viewer"]);
 export const processStage = pgEnum("process_stage", ["not_started", "find", "build", "run"]);
 export const gateStatus = pgEnum("gate_status", ["red", "amber", "green"]);
 export const rating = pgEnum("rating", ["low", "medium", "high"]);
 export const designStatus = pgEnum("design_status", ["draft", "approved"]);
+export const stepPhase = pgEnum("step_phase", ["both", "as-is", "to-be"]);
 
 export const workspaces = pgTable("workspaces", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -89,7 +90,28 @@ export const steps = pgTable("steps", {
   fitRuleBased: rating("fit_rule_based").notNull(),
   fitDataReady: rating("fit_data_ready").notNull(),
   fitErrorRisk: rating("fit_error_risk").notNull(),
-}, (t) => [unique().on(t.processId, t.key)]);
+  /** Share of cases passing through the step, 0–100. */
+  caseShare: doublePrecision("case_share").notNull().default(100),
+  phase: stepPhase("phase").notNull().default("both"),
+  /** Horizontal canvas position; also the step order. */
+  posX: doublePrecision("pos_x").notNull().default(0),
+  /** Deleted steps are kept (archived) so approved baselines and uploaded figures still resolve. */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+}, (t) => [
+  unique().on(t.processId, t.key),
+  check("case_share_range", sql`${t.caseShare} between 0 and 100`),
+  check("minutes_non_negative", sql`${t.minutesPerCase} >= 0`),
+]);
+
+/** Arrows between steps on the process map. */
+export const processEdges = pgTable("process_edges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  processId: uuid("process_id").notNull().references(() => processes.id, { onDelete: "cascade" }),
+  fromStepId: uuid("from_step_id").notNull().references(() => steps.id, { onDelete: "cascade" }),
+  toStepId: uuid("to_step_id").notNull().references(() => steps.id, { onDelete: "cascade" }),
+  label: text("label"),
+}, (t) => [unique().on(t.fromStepId, t.toStepId)]);
 
 /** One mutable draft per process; approving copies it into an immutable approved design. */
 export const designs = pgTable("designs", {
@@ -99,6 +121,8 @@ export const designs = pgTable("designs", {
   version: integer("version").notNull(),
   status: designStatus("status").notNull(),
   assumptions: jsonb("assumptions").$type<Assumptions>().notNull(),
+  /** Approved designs freeze the step definitions they were valued with. */
+  stepsSnapshot: jsonb("steps_snapshot").$type<StepDefinition[]>(),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

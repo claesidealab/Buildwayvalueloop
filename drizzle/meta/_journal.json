@@ -22,6 +22,13 @@
       "when": 1795255358751,
       "tag": "0002_actuals",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795268974435,
+      "tag": "0003_editable_process",
+      "breakpoints": true
     }
   ]
 }

@@ -322,3 +322,54 @@ code { font-size: 0.92em; background: var(--surface2); padding: 1px 6px; border-
     --rust: #B4442A; --coral: #E5806A; --sage: #9DA8A1; --human: #1F3F37; --on-human: #F4F1E8; color-scheme: light;
   }
 }
+
+/* process canvas */
+.pcanvas { position: relative; width: 100%; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+.pcanvas .react-flow { --xy-background-color: var(--surface); --xy-node-border-radius: 12px; --xy-edge-stroke: var(--muted); --xy-edge-stroke-selected: var(--rust); --xy-handle-background-color: var(--ink); --xy-handle-border-color: var(--surface); --xy-controls-button-background-color: var(--surface); --xy-controls-button-background-color-hover: var(--surface2); --xy-controls-button-color: var(--ink); --xy-controls-button-border-color: var(--line); }
+.pcanvas .react-flow__node-step { background: none; border: none; padding: 0; }
+.pcanvas .react-flow__node-lane { pointer-events: none; }
+.pcanvas .react-flow__handle { width: 10px; height: 10px; }
+.pcanvas .react-flow__edge-path { stroke-width: 2; }
+.pcanvas .react-flow__edge.selected .react-flow__edge-path { stroke-width: 3; }
+.plane { border-top: 1px solid var(--line); box-sizing: border-box; }
+.plane-agent { background: color-mix(in srgb, var(--coral) 7%, transparent); }
+.plane-system { background: color-mix(in srgb, var(--sage) 10%, transparent); }
+.plane-label { position: absolute; left: 14px; top: 12px; display: inline-flex; gap: 8px; align-items: center; font: 600 14px var(--text); color: var(--ink); }
+.pnode { border-radius: 12px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.25; box-shadow: 0 1px 2px rgba(0,0,0,.08); cursor: grab; }
+.pnode.sel { outline: 3px solid var(--rust); outline-offset: 2px; }
+.pnode-top { display: flex; justify-content: space-between; align-items: center; }
+.pnode-top b { font: 800 15px/1 var(--display); }
+.pnode-new { font-size: 11px; font-weight: 700; background: var(--surface); color: var(--ink); border-radius: 999px; padding: 1px 8px; }
+.pnode-name { font-weight: 700; font-size: 14px; }
+.pnode-meta { font-size: 12px; opacity: .85; }
+.pedge-bar { position: absolute; right: 12px; top: 12px; display: flex; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px; font-size: 13px; z-index: 5; }
+.changes { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 14px; }
+.changes .label { display: block; margin-bottom: 6px; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip-removed { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; padding: 3px 10px; border-radius: 999px; border: 1px dashed var(--muted); color: var(--muted); }
+.chip-removed .linkbtn { text-decoration: underline; }
+.chip-removed .linkbtn { text-decoration-line: underline; }
+.chip-added { font: inherit; font-size: 13px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface2); color: var(--ink); }
+.field textarea { font: inherit; font-weight: 400; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); resize: vertical; }
+.field-row { display: flex; gap: 8px; align-items: center; }
+.field-row input { width: 100%; min-width: 0; }
+.field-row .muted { font-weight: 400; font-size: 13px; white-space: nowrap; }
+.field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fit-edit summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.fit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.insp .confirm { font-size: 14px; }
+.hb .bar i.r { background: repeating-linear-gradient(45deg, var(--sage), var(--sage) 4px, transparent 4px, transparent 8px); }
+.hb .bar i.neg { background: var(--rust); opacity: .55; }
+
+/* map page: canvas full width, inspector beside it only on very wide screens */
+.map-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+.insp-wide { position: static; }
+@media (min-width: 900px) {
+  .insp-wide { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; align-items: start; }
+  .insp-wide > .label:first-child, .insp-wide > .muted { grid-column: 1 / -1; }
+}
+@media (min-width: 1750px) {
+  .map-grid { grid-template-columns: minmax(0, 1fr) 360px; }
+  .insp-wide { display: flex; position: sticky; top: 16px; }
+}
+.canvas-hint { font-size: 13px; margin: -6px 0 8px; }
