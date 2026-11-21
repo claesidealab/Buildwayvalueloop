@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useWorkspace } from "@/lib/store";
 import { computeValueCase, formatMSEK } from "@/domain/value-model";
+import { summariseActuals } from "@/domain/actuals";
 import { PageHead, RouteTrack, TrafficLight } from "@/components/ui";
 
-/** Example share of plan realised to date, until real actuals are connected. */
+/** Example share of plan realised, shown only while no actuals have been uploaded. */
 const EXAMPLE_REALISED = 0.76;
 const EXAMPLE_MONTH = 9;
 
@@ -15,6 +16,11 @@ export default function Overview() {
   const valueOf = (p: (typeof state.processes)[number]) => computeValueCase(p.steps, p.design, p.assumptions);
   const live = state.processes.filter((p) => p.stage === "run" && p.steps.length);
   const plan = live.reduce((t, p) => t + (p.baseline?.net ?? valueOf(p).net), 0);
+  const measured = live.filter((p) => p.actuals.some((a) => a.metric === "hours_released"));
+  const realised = measured.reduce((t, p) => {
+    const planCase = computeValueCase(p.steps, p.baseline?.design ?? p.design, p.baseline?.assumptions ?? p.assumptions);
+    return t + summariseActuals(p.actuals, { net: p.baseline?.net ?? planCase.net, aiCost: planCase.aiCost, assumptions: p.baseline?.assumptions ?? p.assumptions }).realisedToDate;
+  }, 0);
   const agents = live.reduce((t, p) => t + valueOf(p).steps.filter((s) => s.lane === "agent").length, 0);
 
   return (
@@ -27,7 +33,7 @@ export default function Overview() {
       />
       <div className="tiles">
         <div className="tile"><span className="label">Planned value</span><span className="v num">{formatMSEK(plan)} MSEK</span><small>Per year, running processes</small></div>
-        <div className="tile"><span className="label">Realised to date</span><span className="v num">{formatMSEK((plan * EXAMPLE_MONTH) / 12 * EXAMPLE_REALISED)} MSEK</span><small>Month {EXAMPLE_MONTH} of 12 · example actuals</small></div>
+        <div className="tile"><span className="label">Realised to date</span><span className="v num">{formatMSEK(measured.length ? realised : (plan * EXAMPLE_MONTH) / 12 * EXAMPLE_REALISED)} MSEK</span><small>{measured.length ? "From uploaded figures" : "Example until figures are uploaded"}</small></div>
         <div className="tile"><span className="label">Agents live</span><span className="v num">{agents}</span><small>Across {live.length} process</small></div>
         <div className="tile"><span className="label">Processes</span><span className="v num">{live.length} / {state.processes.length}</span><small>Running AI-native</small></div>
       </div>

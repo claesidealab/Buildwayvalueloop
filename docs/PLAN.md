@@ -75,9 +75,11 @@ Land with advisory, expand with licences, retain with managed services.
 - [x] Postgres persistence and API, with audit log and server-computed baselines
 - [x] Sign-in (Microsoft, Google, developer sign-in), workspaces, roles and invitations
 - [ ] Draft an as-is map from SOPs and interview notes with Claude
-- [ ] Actuals via CSV upload, then one connector (Zendesk or ServiceNow)
-- [ ] Baseline history view (data is stored; audit log is written)
-- [ ] Export the value case (PDF) for customer steering groups
+- [x] Actuals via CSV upload
+- [ ] First connector (Zendesk or ServiceNow)
+- [x] Baseline history and activity log
+- [x] Printable value case for steering groups (save as PDF from the browser)
+- [x] CI on GitHub Actions, including Postgres 16
 
 ### Phase 2: close the loop (3–6 months after MVP)
 - Simulation of the to-be (queues, escalation, confidence thresholds) replacing the simple range

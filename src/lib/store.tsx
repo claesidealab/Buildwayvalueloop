@@ -26,6 +26,8 @@ interface Store {
   setSystemStep: (processId: string, stepId: string, isSystem: boolean) => void;
   setAssumption: (processId: string, key: keyof Assumptions, value: number) => void;
   approveBaseline: (processId: string) => void;
+  /** Replace local state with a server response (e.g. after an upload). */
+  replace: (s: WorkspaceState) => void;
   reset: () => void;
 }
 
@@ -110,6 +112,7 @@ export function WorkspaceProvider({ slug, children }: { slug: string; children: 
       clearTimeout(timers.current.get(t));
       timers.current.set(t, setTimeout(() => mutate((s) => s, () => call("PATCH", `${base}/processes/${pid}/assumptions`, { [key]: value })), 300));
     },
+    replace: (s) => { seq.current++; setState(s); },
     approveBaseline: (pid) => mutate((s) => s, () => call("POST", `${base}/processes/${pid}/baselines`)),
     reset: () => mutate((s) => s, () => call("POST", `${base}/reset`)),
   }), [slug, base, state, error, pending, mutate]);

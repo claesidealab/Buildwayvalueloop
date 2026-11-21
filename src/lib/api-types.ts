@@ -1,6 +1,7 @@
 /** Shapes exchanged between the API and the client. No React or server imports here. */
 import type { Assumptions, AutonomyLevel, Baseline, Gate, ProcessDesign, Role, Stage, StepDefinition } from "@/domain/types";
 import type { Permission } from "@/domain/permissions";
+import type { ActualPoint } from "@/domain/actuals";
 
 export interface ProcessInstance {
   /** URL slug, unique within the workspace. */
@@ -16,6 +17,8 @@ export interface ProcessInstance {
   design: ProcessDesign;
   assumptions: Assumptions;
   baseline: Baseline | null;
+  /** Measured results after go-live, oldest first. */
+  actuals: ActualPoint[];
 }
 
 export interface WorkspaceState {

@@ -46,6 +46,19 @@ net              = labour benefit − oversight − AI cost − fixed cost
 range            = net − 25% … net + 15% of labour benefit   (until simulation, phase 2)
 ```
 
+Actuals (`src/domain/actuals.ts`, covered by `actuals.test.ts`):
+
+```
+realised value / month = hours_released × cost per hour × (1 − oversight share)
+                         − AI cost (ai_cost_sek if uploaded, else plan AI cost / 12)
+                         − fixed cost / 12
+plan / month           = baseline net (or current case) / 12
+realised share         = Σ realised ÷ Σ plan, over months with hours_released
+step alert             = agent success < 80% or escalation > 15% in the latest month
+```
+
+CSV: `month,metric,step,value`, comma or semicolon separated (decimal comma allowed with semicolons). Metrics: `hours_released`, `ai_cost_sek`, `cases`, `handled_without_human`, `cost_per_case`, `csat` (process level) and `success_rate`, `escalation_rate` (per step). Uploads are all or nothing: any bad row and nothing is stored; the response lists problems by line. Re-uploading a month replaces its values (unique per process, step, metric, month and source).
+
 Agent fit (`src/domain/fit.ts`) scores 0–100 from four ratings (volume, rule-based, data ready, error risk) and suggests a level. High error risk caps the suggestion at L2.
 
 ## Sign-in, workspaces and roles
@@ -58,12 +71,12 @@ Agent fit (`src/domain/fit.ts`) scores 0–100 from four ratings (volume, rule-b
 - **Developer sign-in:** signs in as an existing example user; on by default only outside production.
 - **CSRF:** cookies are `SameSite=Lax`, and `src/middleware.ts` refuses non-GET API calls whose `Origin` is another site.
 
-| Role | Read | Edit designs and assumptions | Approve baselines | Manage members | Reset example |
-|---|---|---|---|---|---|
-| Viewer | ✓ | | | | |
-| Process owner | ✓ | ✓ | | | |
-| Admin (customer) | ✓ | ✓ | ✓ | ✓ | |
-| Buildway advisor | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Role | Read | Edit designs and assumptions | Upload actuals | Approve baselines | Manage members | Reset example |
+|---|---|---|---|---|---|---|
+| Viewer | ✓ | | | | | |
+| Process owner | ✓ | ✓ | ✓ | | | |
+| Admin (customer) | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| Buildway advisor | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 Permissions live in `src/domain/permissions.ts`. Every API route calls `guard(workspace, permission)` in `src/server/http.ts`, which signs the user in from the cookie and checks the role. The UI hides or disables what the role can't do, but the server is what enforces it. A workspace always keeps at least one admin or advisor.
 
@@ -76,10 +89,10 @@ Permissions live in `src/domain/permissions.ts`. Every API route calls `guard(wo
 ## Persistence
 
 - Schema: `src/server/db/schema.ts` is the source of truth. After changing it, run `npx drizzle-kit generate --name <change>` and commit the new file in `drizzle/`. Migrations run automatically on first connection.
-- Connection: `src/server/db/index.ts`. `DATABASE_URL` set: node-postgres. Unset: PGlite in `PGLITE_DIR` (default `.data/pglite`). Tests use an in-memory PGlite per test.
+- Connection: `src/server/db/index.ts`. `DATABASE_URL` set: node-postgres. Unset: PGlite in `PGLITE_DIR` (default `.data/pglite`). Tests use an in-memory PGlite per test, or a real Postgres when `TEST_DATABASE_URL` is set (`npm run test:pg`; CI runs both).
 - Data access: `src/server/repo.ts`. Every function takes a workspace slug and filters on `workspace_id`. Domain errors (`NotFoundError`, `ConflictError`) map to 404 and 409 in `src/server/http.ts`.
 - Designs: each process has one mutable **draft** design (enforced by a partial unique index). Approving a baseline copies the draft into a new immutable **approved** design and records the baseline with the value computed on the server. The client never sends the value.
-- Every change writes an `audit_log` row.
+- Every change writes an `audit_log` row: design edits, assumptions, baselines, uploads, and member and workspace changes. The History page shows them in plain language.
 - The example workspace (`acme-support`) is seeded on first request and can be reset; real workspaces cannot.
 
 ## API
@@ -102,8 +115,11 @@ Workspace calls return the full workspace state (`WorkspaceState` in `src/lib/ap
 | GET, POST | `/api/workspaces/:ws/members` | POST `{ email, role }` | read / members.manage |
 | PATCH, DELETE | `/api/workspaces/:ws/members/:userId` | PATCH `{ role }` | members.manage |
 | DELETE | `/api/workspaces/:ws/invitations/:id` | – | members.manage |
+| POST, DELETE | `/api/workspaces/:ws/processes/:process/actuals` | POST `{ csv }` (max 1 MB) | actuals.import |
+| GET | `/api/workspaces/:ws/processes/:process/actuals/template` | – (CSV file) | workspace.read |
+| GET | `/api/workspaces/:ws/history` | – | workspace.read |
 
-Errors: 400 invalid input, 401 not signed in, 403 role doesn't allow it, 404 not found or not a member, 409 conflict.
+Errors: 400 invalid input, 401 not signed in, 403 role doesn't allow it, 404 not found or not a member, 409 conflict, 422 CSV with problems.
 
 The client store (`src/lib/store.tsx`) applies changes optimistically, sends slider changes after 300 ms of rest, and ignores responses that arrive after a newer change.
 
@@ -113,4 +129,3 @@ The client store (`src/lib/store.tsx`) applies changes optimistically, sends sli
 - Invitations are not emailed: tell people to sign in with the invited address. Email delivery comes with an email provider.
 - Postgres row-level security as a second line of defence is not switched on yet; isolation relies on the repository's workspace filters, covered by tests.
 - No rate limiting on sign-in routes yet; add at the hosting layer.
-- Monitoring uses example actuals marked in the UI; the `actuals` table is ready for CSV upload.

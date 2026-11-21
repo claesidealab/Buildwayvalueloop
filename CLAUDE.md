@@ -9,4 +9,4 @@
 - All data access goes through `src/server/repo.ts` (workspace content) and `src/server/access.ts` (users, sessions, members), scoped by workspace.
 - Every workspace API route must start with `guard(ws, permission)` from `src/server/http.ts`, before reading the body. New permissions go in `src/domain/permissions.ts` with a test. Compute values on the server with `src/domain`; never trust values sent by the client.
 - Repository and access changes need tests in `src/server/repo.test.ts` or `src/server/access.test.ts` (in-memory PGlite).
-- Before committing: `npm test`, `npm run typecheck`, `npm run build`.
+- Before committing: `npm test`, `npm run typecheck`, `npm run build`. For schema or query changes also run `npm run test:pg` against a throwaway Postgres (CI does this on Postgres 16).

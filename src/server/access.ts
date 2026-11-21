@@ -5,7 +5,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, count, eq, inArray } from "drizzle-orm";
 import type { DB } from "./db";
-import { identities, invitations, memberships, sessions, users, workspaces } from "./db/schema";
+import { auditLog, identities, invitations, memberships, sessions, users, workspaces } from "./db/schema";
 import { ConflictError, EXAMPLE_WORKSPACE, NotFoundError } from "./repo";
 import { can, canAssignRole, type Permission } from "@/domain/permissions";
 import type { Role } from "@/domain/types";
@@ -23,6 +23,10 @@ const RENEW_WHEN_DAYS_LEFT = 15;
 
 export const normaliseEmail = (e: string) => e.trim().toLowerCase();
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
+
+async function audit(db: DB, workspaceId: string, actorId: string | null, action: string, subject: unknown) {
+  await db.insert(auditLog).values({ workspaceId, actorId, action, subject });
+}
 
 /* ---------- sessions ---------- */
 
@@ -153,6 +157,7 @@ export async function createWorkspace(db: DB, user: SessionUser, input: { name: 
     if (taken) throw new ConflictError("That address is taken");
     const [ws] = await tx.insert(workspaces).values({ slug: input.slug, name: input.name }).returning();
     await tx.insert(memberships).values({ workspaceId: ws.id, userId: user.id, role: "advisor" });
+    await audit(tx as unknown as DB, ws.id, user.id, "workspace.created", { name: input.name });
     return ws;
   });
 }
@@ -179,11 +184,18 @@ export async function inviteMember(db: DB, access: Access, emailRaw: string, rol
       const [m] = await tx.select().from(memberships).where(and(eq(memberships.workspaceId, access.workspaceId), eq(memberships.userId, u.id)));
       if (m) throw new ConflictError(`${email} is already a member`);
       await tx.insert(memberships).values({ workspaceId: access.workspaceId, userId: u.id, role: toDbRole(role) });
+      await audit(tx as unknown as DB, access.workspaceId, access.userId, "member.added", { email, role });
     } else {
       await tx.insert(invitations).values({ workspaceId: access.workspaceId, email, role: toDbRole(role), invitedBy: access.userId })
         .onConflictDoUpdate({ target: [invitations.workspaceId, invitations.email], set: { role: toDbRole(role), invitedBy: access.userId } });
+      await audit(tx as unknown as DB, access.workspaceId, access.userId, "member.invited", { email, role });
     }
   });
+}
+
+async function emailOf(db: DB, userId: string) {
+  const [u] = await db.select({ email: users.email }).from(users).where(eq(users.id, userId));
+  return u?.email ?? null;
 }
 
 async function managersLeft(db: DB, workspaceId: string, excludingUserId: string) {
@@ -202,6 +214,7 @@ export async function changeRole(db: DB, access: Access, userId: string, role: R
   const staysManager = role === "advisor" || role === "customer-admin";
   if (!staysManager && (await managersLeft(db, access.workspaceId, userId)) < 1) throw new ConflictError("A workspace needs at least one admin or advisor");
   await db.update(memberships).set({ role: toDbRole(role) }).where(and(eq(memberships.workspaceId, access.workspaceId), eq(memberships.userId, userId)));
+  await audit(db, access.workspaceId, access.userId, "member.role_changed", { userId, email: await emailOf(db, userId), from: toRole(m.role), to: role });
 }
 
 export async function removeMember(db: DB, access: Access, userId: string) {
@@ -209,10 +222,13 @@ export async function removeMember(db: DB, access: Access, userId: string) {
   if (!m) throw new NotFoundError("Member not found");
   if (m.role === "advisor" && !access.isBuildway) throw new ForbiddenError("Only Buildway staff can remove an advisor");
   if ((await managersLeft(db, access.workspaceId, userId)) < 1) throw new ConflictError("A workspace needs at least one admin or advisor");
+  const email = await emailOf(db, userId);
   await db.delete(memberships).where(and(eq(memberships.workspaceId, access.workspaceId), eq(memberships.userId, userId)));
+  await audit(db, access.workspaceId, access.userId, "member.removed", { userId, email, role: toRole(m.role) });
 }
 
 export async function revokeInvitation(db: DB, access: Access, invitationId: string) {
   const res = await db.delete(invitations).where(and(eq(invitations.workspaceId, access.workspaceId), eq(invitations.id, invitationId))).returning();
   if (!res.length) throw new NotFoundError("Invitation not found");
+  await audit(db, access.workspaceId, access.userId, "invitation.revoked", { email: res[0].email });
 }

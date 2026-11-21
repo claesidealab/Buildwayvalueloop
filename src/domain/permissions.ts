@@ -4,17 +4,17 @@ import type { Role } from "./types";
  * What each workspace role may do.
  *
  * viewer          read everything
- * process_owner   + change designs and assumptions
+ * process_owner   + change designs and assumptions, upload actuals
  * customer_admin  + approve baselines, manage members
  * advisor         + reset example workspaces (Buildway staff on an engagement)
  */
-export type Permission = "workspace.read" | "design.edit" | "baseline.approve" | "members.manage" | "workspace.reset";
+export type Permission = "workspace.read" | "design.edit" | "actuals.import" | "baseline.approve" | "members.manage" | "workspace.reset";
 
 const GRANTS: Record<Role, Permission[]> = {
   viewer: ["workspace.read"],
-  "process-owner": ["workspace.read", "design.edit"],
-  "customer-admin": ["workspace.read", "design.edit", "baseline.approve", "members.manage"],
-  advisor: ["workspace.read", "design.edit", "baseline.approve", "members.manage", "workspace.reset"],
+  "process-owner": ["workspace.read", "design.edit", "actuals.import"],
+  "customer-admin": ["workspace.read", "design.edit", "actuals.import", "baseline.approve", "members.manage"],
+  advisor: ["workspace.read", "design.edit", "actuals.import", "baseline.approve", "members.manage", "workspace.reset"],
 };
 
 export const ROLES: ReadonlyArray<{ role: Role; label: string; description: string }> = [

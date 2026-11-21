@@ -9,7 +9,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:pg": "vitest run --no-file-parallelism src/server"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.17",

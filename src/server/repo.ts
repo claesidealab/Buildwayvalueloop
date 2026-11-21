@@ -3,9 +3,10 @@
  * and every query filters on workspace_id. Value cases are always computed here with the
  * domain model, never taken from the client.
  */
-import { and, asc, desc, eq, inArray, max } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
 import type { DB } from "./db";
-import { auditLog, baselines, designSteps, designs, memberships, processes, steps, users, workspaces } from "./db/schema";
+import { actuals, auditLog, baselines, designSteps, designs, memberships, processes, steps, users, workspaces } from "./db/schema";
+import type { ActualPoint } from "@/domain/actuals";
 import type { Assumptions, AutonomyLevel, Baseline, ProcessDesign, Stage, StepDefinition } from "@/domain/types";
 import { computeValueCase } from "@/domain/value-model";
 import type { AssumptionsPatch, ProcessInstance, StepPatch, WorkspaceState } from "@/lib/api-types";
@@ -87,10 +88,14 @@ export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<Wo
       };
     }
 
+    const keyOfStep = new Map(stepRows.map((s) => [s.id, s.key]));
+    const actualRows = await db.select().from(actuals).where(and(eq(actuals.workspaceId, ws.id), eq(actuals.processId, p.id))).orderBy(asc(actuals.periodStart));
+    const actualPoints: ActualPoint[] = actualRows.map((r) => ({ period: r.periodStart, metric: r.metric, step: r.stepId ? keyOfStep.get(r.stepId) ?? null : null, value: r.value }));
+
     out.push({
       id: p.slug, name: p.name, templateId: p.templateId, templateVersion: p.templateVersion, unit: p.unit,
       stage: toStage(p.stage), gate: p.gate, note: p.note, steps: stepDefs, design,
-      assumptions: draft?.assumptions ?? customerService.defaultAssumptions, baseline,
+      assumptions: draft?.assumptions ?? customerService.defaultAssumptions, baseline, actuals: actualPoints,
     });
   }
   return { workspace: { id: ws.slug, name: ws.name, isExample: ws.isExample }, processes: out };
@@ -158,6 +163,71 @@ export async function approveBaseline(db: DB, wsSlug: string, processSlug: strin
     await audit(tx, ws.id, actorId, "baseline.approved", { process: processSlug, baselineId: baseline.id, net: value.net, designVersion: approved.version });
     return baseline;
   });
+}
+
+/* ---------- actuals ---------- */
+
+/** Stores validated actuals. Re-uploading a month replaces its values; other months are kept. */
+export async function importActuals(db: DB, wsSlug: string, processSlug: string, rows: ActualPoint[], actorId: string, source = "csv") {
+  return db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const stepRows = await tx.select().from(steps).where(eq(steps.processId, p.id));
+    const idOf = new Map(stepRows.map((s) => [s.key, s.id]));
+    const values = rows.map((r) => {
+      const stepId = r.step ? idOf.get(r.step) : null;
+      if (r.step && !stepId) throw new NotFoundError(`Step ${r.step} not found`);
+      return { workspaceId: ws.id, processId: p.id, stepId: stepId ?? null, metric: r.metric, periodStart: r.period, value: r.value, source, importedBy: actorId };
+    });
+    for (let i = 0; i < values.length; i += 500) {
+      await tx.insert(actuals).values(values.slice(i, i + 500)).onConflictDoUpdate({
+        target: [actuals.processId, actuals.stepId, actuals.metric, actuals.periodStart, actuals.source],
+        set: { value: sql`excluded.value`, importedBy: actorId, importedAt: new Date() },
+      });
+    }
+    const months = [...new Set(rows.map((r) => r.period.slice(0, 7)))].sort();
+    await audit(tx, ws.id, actorId, "actuals.imported", { process: processSlug, rows: rows.length, months, source });
+    return { rows: rows.length, months };
+  });
+}
+
+/** Removes all uploaded (CSV) actuals for a process. */
+export async function clearActuals(db: DB, wsSlug: string, processSlug: string, actorId: string) {
+  await db.transaction(async (tx) => {
+    const ws = await workspaceBySlug(tx, wsSlug);
+    const p = await processBySlug(tx, ws.id, processSlug);
+    const removed = await tx.delete(actuals).where(and(eq(actuals.workspaceId, ws.id), eq(actuals.processId, p.id), eq(actuals.source, "csv"))).returning({ id: actuals.id });
+    await audit(tx, ws.id, actorId, "actuals.cleared", { process: processSlug, rows: removed.length });
+  });
+}
+
+/* ---------- history ---------- */
+
+export interface BaselineRecord { id: string; process: string; processName: string; approvedAt: string; approvedBy: string; net: number; low: number; high: number; designVersion: number }
+export interface ActivityRecord { id: number; at: string; actor: string | null; action: string; subject: Record<string, unknown> }
+
+export async function listBaselines(db: DB, wsSlug: string): Promise<BaselineRecord[]> {
+  const ws = await workspaceBySlug(db, wsSlug);
+  const rows = await db.select({ b: baselines, who: users.name, p: processes, v: designs.version })
+    .from(baselines)
+    .innerJoin(users, eq(users.id, baselines.approvedBy))
+    .innerJoin(processes, eq(processes.id, baselines.processId))
+    .innerJoin(designs, eq(designs.id, baselines.designId))
+    .where(eq(baselines.workspaceId, ws.id))
+    .orderBy(desc(baselines.approvedAt));
+  return rows.map((r) => ({
+    id: r.b.id, process: r.p.slug, processName: r.p.name, approvedAt: r.b.approvedAt.toISOString(), approvedBy: r.who,
+    net: r.b.netValueSek, low: r.b.lowSek, high: r.b.highSek, designVersion: r.v,
+  }));
+}
+
+export async function listActivity(db: DB, wsSlug: string, limit = 200): Promise<ActivityRecord[]> {
+  const ws = await workspaceBySlug(db, wsSlug);
+  const rows = await db.select({ a: auditLog, who: users.name })
+    .from(auditLog).leftJoin(users, eq(users.id, auditLog.actorId))
+    .where(eq(auditLog.workspaceId, ws.id))
+    .orderBy(desc(auditLog.at), desc(auditLog.id)).limit(limit);
+  return rows.map((r) => ({ id: r.a.id, at: r.a.at.toISOString(), actor: r.who, action: r.a.action, subject: r.a.subject as Record<string, unknown> }));
 }
 
 /* ---------- example workspace ---------- */

@@ -139,7 +139,12 @@ export const actuals = pgTable("actuals", {
   periodStart: date("period_start").notNull(),
   value: doublePrecision("value").notNull(),
   source: text("source").notNull(),
-});
+  importedBy: uuid("imported_by").references(() => users.id, { onDelete: "set null" }),
+  importedAt: timestamp("imported_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  // One value per process, step (or none), metric, month and source; re-uploads replace it.
+  unique("actuals_one_value").on(t.processId, t.stepId, t.metric, t.periodStart, t.source).nullsNotDistinct(),
+]);
 
 export const auditLog = pgTable("audit_log", {
   id: bigserial("id", { mode: "number" }).primaryKey(),

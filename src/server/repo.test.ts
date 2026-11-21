@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createDb, type DB } from "./db";
+import type { DB } from "./db";
+import { createTestDb } from "./test-db";
 import { auditLog, designSteps, workspaces } from "./db/schema";
-import { approveBaseline, ConflictError, ensureAdvisor, EXAMPLE_WORKSPACE as WS, getWorkspaceState, NotFoundError, resetExample, seedExample, updateAssumptions, updateStep } from "./repo";
+import { approveBaseline, clearActuals, importActuals, listActivity, listBaselines, ConflictError, ensureAdvisor, EXAMPLE_WORKSPACE as WS, getWorkspaceState, NotFoundError, resetExample, seedExample, updateAssumptions, updateStep } from "./repo";
 import { computeValueCase } from "@/domain/value-model";
 import { customerService } from "@/templates";
 
@@ -9,7 +10,7 @@ let db: DB;
 let advisor: string;
 
 beforeEach(async () => {
-  db = await createDb({ memory: true });
+  db = await createTestDb();
   await seedExample(db);
   advisor = await ensureAdvisor(db);
 });
@@ -99,5 +100,53 @@ describe("resetExample", () => {
   it("refuses to reset a real workspace", async () => {
     await db.update(workspaces).set({ isExample: false });
     await expect(resetExample(db, WS)).rejects.toBeInstanceOf(ConflictError);
+  });
+});
+
+describe("actuals", () => {
+  const jan = [
+    { period: "2026-01-01", metric: "hours_released", step: null, value: 1000 },
+    { period: "2026-01-01", metric: "success_rate", step: "resolve", value: 70 },
+  ];
+
+  it("stores actuals and returns them with the process, step keys included", async () => {
+    await importActuals(db, WS, "customer-service", jan, advisor);
+    const p = await cs();
+    expect(p.actuals).toEqual(expect.arrayContaining(jan));
+    expect(p.actuals).toHaveLength(2);
+  });
+
+  it("replaces a month's value on re-upload and keeps other months", async () => {
+    await importActuals(db, WS, "customer-service", jan, advisor);
+    await importActuals(db, WS, "customer-service", [
+      { period: "2026-01-01", metric: "hours_released", step: null, value: 1200 },
+      { period: "2026-02-01", metric: "hours_released", step: null, value: 1300 },
+    ], advisor);
+    const hours = (await cs()).actuals.filter((a) => a.metric === "hours_released").map((a) => [a.period, a.value]);
+    expect(hours).toEqual([["2026-01-01", 1200], ["2026-02-01", 1300]]);
+    expect((await cs()).actuals.find((a) => a.metric === "success_rate")?.value).toBe(70);
+  });
+
+  it("rejects unknown steps and clears uploaded data", async () => {
+    await expect(importActuals(db, WS, "customer-service", [{ period: "2026-01-01", metric: "success_rate", step: "nope", value: 1 }], advisor)).rejects.toBeInstanceOf(NotFoundError);
+    await importActuals(db, WS, "customer-service", jan, advisor);
+    await clearActuals(db, WS, "customer-service", advisor);
+    expect((await cs()).actuals).toEqual([]);
+  });
+});
+
+describe("history", () => {
+  it("lists baselines newest first and the activity log", async () => {
+    await approveBaseline(db, WS, "customer-service", advisor);
+    await updateStep(db, WS, "customer-service", "resolve", { autonomy: 1 }, advisor);
+    await approveBaseline(db, WS, "customer-service", advisor);
+    const bs = await listBaselines(db, WS);
+    expect(bs).toHaveLength(2);
+    expect(bs[0].designVersion).toBeGreaterThan(bs[1].designVersion);
+    expect(bs[0].net).toBeLessThan(bs[1].net);
+    expect(bs[0].approvedBy).toBe("Buildway advisor");
+    const acts = await listActivity(db, WS);
+    expect(acts.map((a) => a.action)).toEqual(["baseline.approved", "design.step_changed", "baseline.approved"]);
+    expect(acts[1].actor).toBe("Buildway advisor");
   });
 });

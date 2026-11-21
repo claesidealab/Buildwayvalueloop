@@ -6,10 +6,12 @@ describe("permissions", () => {
     expect(can("viewer", "workspace.read")).toBe(true);
     expect(can("viewer", "design.edit")).toBe(false);
     expect(can("viewer", "baseline.approve")).toBe(false);
+    expect(can("viewer", "actuals.import")).toBe(false);
   });
 
   it("lets process owners edit designs but not approve baselines", () => {
     expect(can("process-owner", "design.edit")).toBe(true);
+    expect(can("process-owner", "actuals.import")).toBe(true);
     expect(can("process-owner", "baseline.approve")).toBe(false);
     expect(can("process-owner", "members.manage")).toBe(false);
   });

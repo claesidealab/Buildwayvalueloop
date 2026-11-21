@@ -61,6 +61,7 @@ export function Shell({ children }: { children: ReactNode }) {
           ))}
           <p className="nav-h">Workspace</p>
           {link(path("/members"), "Members")}
+          {link(path("/history"), "History")}
         </nav>
         <div className="rail-foot">
           {state && (

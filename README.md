@@ -21,7 +21,9 @@ Phase 1 groundwork. What works today:
 | Overview, templates, redesign canvas, agent fit, value case, monitor | Working screens |
 | Database and API | Done: Postgres via Drizzle, migrations, REST API, audit log, tests |
 | Sign-in, workspaces and roles | Done: Microsoft and Google sign-in, sessions, four roles, invitations, members page |
-| Monitoring actuals | Example data; CSV upload and first connector are planned |
+| Monitoring actuals | Done: CSV upload with per-line validation; monitor and overview use real figures (example data only until the first upload) |
+| History and report | Done: baseline history, activity log, printable one-page value case (save as PDF) |
+| CI | GitHub Actions: tests, types, build, and database tests on Postgres 16 |
 
 The original clickable prototype is kept in [docs/prototype/buildway-loop.html](docs/prototype/buildway-loop.html).
 
@@ -45,7 +47,8 @@ People whose email domain is in `BUILDWAY_EMAIL_DOMAINS` (default `buildway.se`)
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # domain, value-model and database tests
+npm test           # all tests (database tests on embedded PGlite)
+npm run test:pg    # database tests on a real Postgres: set TEST_DATABASE_URL to a throwaway database
 npm run typecheck
 npm run build
 ```

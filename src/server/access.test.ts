@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createDb, type DB } from "./db";
+import type { DB } from "./db";
+import { createTestDb } from "./test-db";
 import { users } from "./db/schema";
 import { eq } from "drizzle-orm";
 import {
   authorize, changeRole, createSession, createWorkspace, deleteSession, ForbiddenError, getAccess, inviteMember, listMembers,
   listMyWorkspaces, removeMember, revokeInvitation, signInDev, signInWithIdentity, validateSession, type SessionUser,
 } from "./access";
-import { ConflictError, EXAMPLE_WORKSPACE as WS, NotFoundError, seedExample } from "./repo";
+import { ConflictError, EXAMPLE_WORKSPACE as WS, listActivity, NotFoundError, seedExample } from "./repo";
 
 let db: DB;
 const DAY = 86_400_000;
@@ -16,7 +17,7 @@ const userBy = async (email: string): Promise<SessionUser> => {
 };
 
 beforeEach(async () => {
-  db = await createDb({ memory: true });
+  db = await createTestDb();
   await seedExample(db);
 });
 
@@ -139,5 +140,7 @@ describe("members", () => {
     const inv = (await listMembers(db, admin)).invitations[0];
     await revokeInvitation(db, admin, inv.id);
     expect((await listMembers(db, admin)).invitations).toHaveLength(0);
+    const actions = (await listActivity(db, WS)).map((a) => a.action);
+    expect(actions).toEqual(["invitation.revoked", "member.invited", "member.role_changed"]);
   });
 });
