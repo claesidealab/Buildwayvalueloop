@@ -5,8 +5,9 @@
  */
 import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import type { DB } from "./db";
-import { actuals, auditLog, baselines, designSteps, designs, memberships, processEdges, processes, steps, users, workspaces } from "./db/schema";
-import type { ActualPoint } from "@/domain/actuals";
+import { actuals, auditLog, baselines, designSteps, designs, memberships, processEdges, processes, steps, strategyPlans, users, workspaces } from "./db/schema";
+import { summariseActuals, type ActualPoint } from "@/domain/actuals";
+import { effectiveStage, gateFromRealised, measureBasis } from "@/domain/progress";
 import type { Assumptions, AutonomyLevel, Baseline, FitFactors, ProcessDesign, ProcessEdge, Stage, StepDefinition, StepPhase } from "@/domain/types";
 import { computeValueCase } from "@/domain/value-model";
 import type { AssumptionsPatch, NewStep, ProcessInstance, StepPatch, WorkspaceState } from "@/lib/api-types";
@@ -70,6 +71,9 @@ export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<Wo
     ? await db.select().from(steps).where(and(eq(steps.workspaceId, ws.id), inArray(steps.processId, procs.map((p) => p.id)))).orderBy(asc(steps.position))
     : [];
 
+  const [planRow] = await db.select({ data: strategyPlans.data }).from(strategyPlans).where(eq(strategyPlans.workspaceId, ws.id));
+  const strategy = planRow?.data ?? null;
+
   const out: ProcessInstance[] = [];
   for (const p of procs) {
     const stepRows = allSteps.filter((s) => s.processId === p.id);
@@ -106,10 +110,19 @@ export async function getWorkspaceState(db: DB, wsSlug: string): Promise<Omit<Wo
       .filter((e) => liveIds.has(e.fromStepId) && liveIds.has(e.toStepId))
       .map((e) => ({ id: e.id, from: keyOfStep.get(e.fromStepId)!, to: keyOfStep.get(e.toStepId)!, ...(e.label ? { label: e.label } : {}) }));
 
+    // Stage and light follow what has happened: steps mapped, baseline approved, actuals uploaded.
+    const assumptions = draft?.assumptions ?? customerService.defaultAssumptions;
+    const hasActuals = actualPoints.some((a) => a.metric === "hours_released");
+    let realisedShare: number | null = null;
+    if (hasActuals && stepDefs.length) {
+      const basis = measureBasis({ id: p.slug, steps: stepDefs, design, assumptions, baseline }, strategy);
+      realisedShare = summariseActuals(actualPoints, basis).realisedShare;
+    }
     out.push({
       id: p.slug, name: p.name, templateId: p.templateId, templateVersion: p.templateVersion, unit: p.unit,
-      stage: toStage(p.stage), gate: p.gate, note: p.note, steps: stepDefs, design,
-      assumptions: draft?.assumptions ?? customerService.defaultAssumptions, baseline, actuals: actualPoints, edges, hasDraft: !!draft,
+      stage: effectiveStage(toStage(p.stage), { stepCount: stepDefs.length, hasBaseline: !!baseline, hasActuals }),
+      gate: gateFromRealised(p.gate, realisedShare), note: p.note, steps: stepDefs, design,
+      assumptions, baseline, actuals: actualPoints, edges, hasDraft: !!draft,
     });
   }
   return { workspace: { id: ws.slug, name: ws.name, isExample: ws.isExample }, processes: out };

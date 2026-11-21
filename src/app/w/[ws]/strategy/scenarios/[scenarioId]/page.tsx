@@ -5,8 +5,10 @@ import { use, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWorkspace } from "@/lib/store";
 import { useStrategy } from "@/lib/strategy-store";
-import { computeScenario, halfYears, type CostKind, type GateStatus, type HalfYear, type Scenario } from "@/domain/strategy";
+import { caseInScenarioTerms, computeScenario, halfYears, type CostKind, type Gate, type GateCheck, type GateStatus, type HalfYear, type Scenario } from "@/domain/strategy";
 import { computeValueCase } from "@/domain/value-model";
+import { evaluateGate, GATE_METRICS } from "@/domain/gates";
+import { measureBasis } from "@/domain/progress";
 import { PageHead } from "@/components/ui";
 import { money, NumField, signedMoney, StrategyTabs, TextField } from "@/components/strategy-ui";
 
@@ -34,14 +36,30 @@ export default function ScenarioPage({ params }: { params: Promise<{ scenarioId:
   const flowName = (id: string) => plan.flows.find((f) => f.id === id)?.name ?? "Unknown flow";
   const candidates = plan.flows.filter((f) => f.decision !== "leave" && !scenario.flows.some((sf) => sf.flowId === f.id));
 
-  // Bottom-up check: the linked process's own value case, when it has one.
+  // Bottom-up check: the linked process's own value case, in the scenario's terms (before running costs).
   const bottomUp = (flowId: string) => {
     const pid = plan.flows.find((f) => f.id === flowId)?.processId;
     const p = pid ? state?.processes.find((x) => x.id === pid) : undefined;
     if (!p || !p.steps.length) return null;
-    const net = p.baseline?.net ?? computeValueCase(p.steps, p.design, p.assumptions).net;
-    return { net, approved: !!p.baseline, href: path(`/processes/${p.id}/value`) };
+    const vc = computeValueCase(p.baseline?.steps ?? p.steps, p.baseline?.design ?? p.design, p.baseline?.assumptions ?? p.assumptions);
+    return { ...caseInScenarioTerms(vc), approved: !!p.baseline, href: path(`/processes/${p.id}/value`) };
   };
+
+  // Processes linked to flows in this scenario: what a gate can be checked against.
+  const linked = scenario.flows.flatMap((sf) => {
+    const flow = plan.flows.find((f) => f.id === sf.flowId);
+    const p = flow?.processId ? state?.processes.find((x) => x.id === flow.processId && x.steps.length) : undefined;
+    return p ? [{ p, sf }] : [];
+  });
+  const gateResult = (g: Gate) => {
+    if (!g.check) return null;
+    const l = linked.find((x) => x.p.id === g.check!.processId);
+    if (!l) return evaluateGate(plan, g, null);
+    const basis = measureBasis(l.p, null);
+    return evaluateGate(plan, g, { actuals: l.p.actuals, net: basis.net, aiCost: basis.aiCost, assumptions: basis.assumptions, entry: l.sf });
+  };
+  const setCheck = (gateId: string, check: GateCheck | undefined) =>
+    setScenario((s) => ({ ...s, gates: s.gates.map((x) => (x.id === gateId ? { ...x, check } : x)) }));
 
   const choose = async () => {
     update((p) => ({ ...p, chosenScenarioId: scenario.id }));
@@ -132,7 +150,16 @@ export default function ScenarioPage({ params }: { params: Promise<{ scenarioId:
                     <td><NumField id={`rr-${i}`} label="Value per year at full run-rate" value={sf.runRate} scale={1e6} min={0} disabled={!editable} suffix={`M${c}`}
                       onSave={(v) => v !== null && setScenario((s) => ({ ...s, flows: s.flows.map((f, j) => (j === i ? { ...f, runRate: v } : f)) }))} /></td>
                     <td className="muted" style={{ fontSize: 13 }}>
-                      {bu ? <Link href={bu.href}>{money(bu.net, c)}/yr {bu.approved ? "approved" : "draft"} value case</Link> : "No detailed value case yet"}
+                      {bu ? (
+                        <div className="bu">
+                          <Link href={bu.href}>{money(bu.runRate, c)}/yr from the {bu.approved ? "approved" : "draft"} value case</Link>
+                          <span>{Math.abs(bu.runRate - sf.runRate) < 0.05e6 ? "Matches this scenario" : `${bu.runRate > sf.runRate ? "Higher" : "Lower"} than this scenario by ${money(Math.abs(bu.runRate - sf.runRate), c)}`}</span>
+                          {bu.runningCosts > 0 && <span>AI usage and licences, {money(bu.runningCosts, c)}/yr, belong in running costs below</span>}
+                          {editable && Math.abs(bu.runRate - sf.runRate) >= 0.05e6 && (
+                            <button className="btn btn-sm" onClick={() => setScenario((s) => ({ ...s, flows: s.flows.map((f, j) => (j === i ? { ...f, runRate: Math.round(bu.runRate) } : f)) }))}>Use in scenario</button>
+                          )}
+                        </div>
+                      ) : "No detailed value case yet"}
                     </td>
                     <td>{editable && <button className="btn btn-sm" aria-label={`Remove ${flowName(sf.flowId)}`} onClick={() => setScenario((s) => ({ ...s, flows: s.flows.filter((_, j) => j !== i) }))}>Remove</button>}</td>
                   </tr>
@@ -150,7 +177,7 @@ export default function ScenarioPage({ params }: { params: Promise<{ scenarioId:
             </select>
           </div>
         )}
-        <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>Top-down estimates per flow. Once a flow is mapped as a process, its own value case appears beside it so you can compare.</p>
+        <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>Top-down estimates per flow, as value per year before running costs. Once a flow is mapped as a process, its value case appears beside it on the same basis: labour benefit less oversight. The value case&apos;s AI usage and licences are running costs, so list them under costs rather than in the flow&apos;s value.</p>
       </section>
 
       <section className="panel">
@@ -195,6 +222,17 @@ export default function ScenarioPage({ params }: { params: Promise<{ scenarioId:
                 <div key={g.id} className={`gate gate-${g.status}`}>
                   <TextField id={`gate-${g.id}`} label="Gate criterion" multiline rows={5} value={g.criterion} disabled={!editable}
                     onSave={(v) => setScenario((s) => ({ ...s, gates: s.gates.map((x) => (x.id === g.id ? { ...x, criterion: v } : x)) }))} />
+                  <GateCheckEditor gate={g} linked={linked.map((l) => ({ id: l.p.id, name: l.p.name }))} editable={editable} onChange={(chk) => setCheck(g.id, chk)} />
+                  {(() => {
+                    const r = gateResult(g);
+                    if (!r) return null;
+                    return (
+                      <p className={`gate-check gc-${r.suggestion}`}>
+                        <b>{r.suggestion === "met" ? "Measured: met" : r.suggestion === "missed" ? "Measured: missed" : "No data yet"}</b> · {r.detail}
+                        {editable && r.suggestion !== "no-data" && r.suggestion !== g.status && <button className="linkbtn" onClick={() => setGate(g.id, r.suggestion as GateStatus)}>Mark {r.suggestion}</button>}
+                      </p>
+                    );
+                  })()}
                   <div className="gate-actions" role="group" aria-label="Gate status">
                     {(["open", "met", "missed"] as GateStatus[]).map((st) => (
                       <button key={st} className="btn btn-sm" aria-pressed={g.status === st} disabled={!editable} onClick={() => setGate(g.id, st)}>{st === "open" ? "Open" : st === "met" ? "Met" : "Missed"}</button>
@@ -206,7 +244,7 @@ export default function ScenarioPage({ params }: { params: Promise<{ scenarioId:
             </div>
           ))}
         </div>
-        <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>Bars show net value per year reached at the end of each half-year. Check gates against actual figures on each process's Monitor page.</p>
+        <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>Bars show net value per year reached at the end of each half-year. Give a gate a measure and it is checked against the linked process&apos;s uploaded figures; the room still decides.</p>
       </section>
 
       <section className="panel">
@@ -236,3 +274,34 @@ export default function ScenarioPage({ params }: { params: Promise<{ scenarioId:
   );
 }
 
+
+/** Optional measurable condition for a gate: a linked process, a measure, and a target. */
+function GateCheckEditor({ gate, linked, editable, onChange }: {
+  gate: Gate; linked: Array<{ id: string; name: string }>; editable: boolean; onChange: (c: GateCheck | undefined) => void;
+}) {
+  const c = gate.check;
+  if (!c) {
+    if (!editable || !linked.length) return null;
+    return <button className="linkbtn" onClick={() => onChange({ processId: linked[0].id, metric: "value_vs_plan", op: "gte", target: 80 })}>+ Measure this gate</button>;
+  }
+  const unit = GATE_METRICS.find((m) => m.key === c.metric)?.unit ?? "";
+  return (
+    <div className="gate-measure">
+      <select aria-label="Process to check" value={c.processId} disabled={!editable} onChange={(e) => onChange({ ...c, processId: e.target.value })}>
+        {linked.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+        {!linked.some((l) => l.id === c.processId) && <option value={c.processId}>Process not in this scenario</option>}
+      </select>
+      <select aria-label="Measure" value={c.metric} disabled={!editable} onChange={(e) => onChange({ ...c, metric: e.target.value })}>
+        {GATE_METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+      </select>
+      <span className="gm-row">
+        <select aria-label="Comparison" value={c.op} disabled={!editable} onChange={(e) => onChange({ ...c, op: e.target.value as GateCheck["op"] })}>
+          <option value="gte">at least</option><option value="lte">at most</option>
+        </select>
+        <input type="number" aria-label="Target" value={c.target} disabled={!editable} onChange={(e) => e.target.value !== "" && onChange({ ...c, target: Number(e.target.value) })} />
+        <span className="muted">{unit}</span>
+      </span>
+      {editable && <button className="linkbtn" onClick={() => onChange(undefined)}>Remove measure</button>}
+    </div>
+  );
+}

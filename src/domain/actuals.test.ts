@@ -95,3 +95,14 @@ describe("summariseActuals", () => {
     expect(stepNeedsAttention({ success: 95, escalation: 3 })).toBe(false);
   });
 });
+
+describe("summariseActuals with a per-month plan", () => {
+  it("uses the plan for each month instead of net / 12", async () => {
+    const { summariseActuals } = await import("./actuals");
+    const a = { casesPerMonth: 1000, costPerHour: 100, agentQuality: 80, oversightShare: 0, aiCostPerStepCase: 0, fixedCostPerYear: 0 };
+    const pts = [{ period: "2027-01-01", metric: "hours_released", step: null, value: 1000 }, { period: "2027-02-01", metric: "hours_released", step: null, value: 1000 }];
+    const s = summariseActuals(pts, { net: 1_200_000, aiCost: 0, assumptions: a, planFor: (p) => (p === "2027-01-01" ? 50_000 : 150_000) });
+    expect(s.months.map((m) => m.plan)).toEqual([50_000, 150_000]);
+    expect(s.realisedShare).toBeCloseTo(1, 6);
+  });
+});

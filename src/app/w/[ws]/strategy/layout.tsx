@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { StrategyProvider } from "@/lib/strategy-store";
 
+/** The strategy plan is provided for the whole workspace (see the workspace layout). */
 export default function StrategyLayout({ children }: { children: ReactNode }) {
-  return <StrategyProvider>{children}</StrategyProvider>;
+  return <>{children}</>;
 }

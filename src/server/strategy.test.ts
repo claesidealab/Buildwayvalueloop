@@ -6,6 +6,18 @@ import { ConflictError, ensureAdvisor, EXAMPLE_WORKSPACE as WS, getWorkspaceStat
 import { createProcessFromFlow, getStrategy, recordDecision, saveStrategy } from "./strategy-repo";
 import { buildUserMessage, discoverFlows, toSuggestedFlows, type DiscoveryClient, type Suggestions } from "./discovery";
 import { planSchema } from "./strategy-schema";
+import { describe as d2 } from "vitest";
+
+d2("gate checks in saved plans", () => {
+  it("accepts a measurable gate and rejects a malformed one", () => {
+    const p = examplePlan();
+    const g = p.scenarios[0].gates[0] ?? { id: "g", period: "2027-H2", criterion: "x", status: "open" as const };
+    const withCheck = { ...p, scenarios: [{ ...p.scenarios[0], gates: [{ ...g, check: { processId: "customer-service", metric: "value_vs_plan", op: "gte", target: 80 } }] }] };
+    expect(planSchema.safeParse(withCheck).success).toBe(true);
+    const bad = { ...p, scenarios: [{ ...p.scenarios[0], gates: [{ ...g, check: { processId: "customer-service", metric: "value_vs_plan", op: "about", target: 80 } }] }] };
+    expect(planSchema.safeParse(bad).success).toBe(false);
+  });
+});
 import { examplePlan } from "@/templates/strategy-example";
 
 let db: DB;

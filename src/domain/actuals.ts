@@ -8,7 +8,9 @@
  *   2026-01,handled_without_human,,52
  *   2026-01,success_rate,resolve,71
  *
- * Realised value per month (compared with baseline net / 12):
+ * Realised value per month, compared with the plan for that month. The plan is the baseline
+ * net / 12, or, when the process is in the chosen strategy scenario, the same net following
+ * the scenario's go-live and ramp (see plannedForMonth in strategy.ts):
  *
  *   realised = hours_released × cost per hour × (1 − oversight share)
  *              − AI cost (ai_cost_sek if uploaded, else the plan's AI cost / 12)
@@ -39,6 +41,15 @@ export const METRICS: MetricDef[] = [
 ];
 
 const METRIC = new Map(METRICS.map((m) => [m.key, m]));
+
+/** Realised value for one month, by the formula above; null when hours_released is missing. */
+export function realisedForMonth(points: ActualPoint[], period: string, plan: { aiCost: number; assumptions: Assumptions }): number | null {
+  const get = (metric: string) => points.find((p) => p.period === period && p.metric === metric && p.step === null)?.value;
+  const hours = get("hours_released");
+  if (hours === undefined) return null;
+  const a = plan.assumptions;
+  return hours * a.costPerHour * (1 - a.oversightShare / 100) - (get("ai_cost_sek") ?? plan.aiCost / 12) - a.fixedCostPerYear / 12;
+}
 
 export interface ActualPoint {
   /** First day of the month, YYYY-MM-01. */
@@ -133,17 +144,14 @@ export interface ActualsSummary {
 }
 
 /** Monthly plan vs realised value, latest process KPIs and latest step stats. */
-export function summariseActuals(points: ActualPoint[], plan: { net: number; aiCost: number; assumptions: Assumptions }): ActualsSummary {
+export function summariseActuals(
+  points: ActualPoint[],
+  plan: { net: number; aiCost: number; assumptions: Assumptions; planFor?: (period: string) => number },
+): ActualsSummary {
   const periods = [...new Set(points.map((p) => p.period))].sort();
-  const get = (period: string, metric: string, step: string | null = null) =>
-    points.find((p) => p.period === period && p.metric === metric && p.step === step)?.value;
-
-  const a = plan.assumptions;
   const months: MonthResult[] = periods.map((period) => {
-    const hours = get(period, "hours_released");
-    const ai = get(period, "ai_cost_sek") ?? plan.aiCost / 12;
-    const realised = hours === undefined ? null : hours * a.costPerHour * (1 - a.oversightShare / 100) - ai - a.fixedCostPerYear / 12;
-    return { period, plan: plan.net / 12, realised };
+    const realised = realisedForMonth(points, period, plan);
+    return { period, plan: plan.planFor ? plan.planFor(period) : plan.net / 12, realised };
   });
   const measured = months.filter((m) => m.realised !== null);
   const planToDate = measured.reduce((t, m) => t + m.plan, 0);

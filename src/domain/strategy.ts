@@ -9,7 +9,7 @@
  * Money is in the plan's currency (SEK by default). Own staff time is counted in FTE
  * and valued at `ownTimeRate` per FTE-year, so total cost covers cash and people.
  */
-import type { Rating } from "./types";
+import type { Rating, ValueCase } from "./types";
 
 /** A half-year, written "2027-H1". */
 export type HalfYear = `${number}-H${1 | 2}`;
@@ -65,6 +65,19 @@ export interface CostLine {
 
 export type GateStatus = "open" | "met" | "missed";
 
+/**
+ * A measurable gate condition, checked against uploaded actuals of a linked process.
+ * metric "value_vs_plan": realised value as a percent of plan in the gate's half-year.
+ * Any other metric is a process-level actuals metric (e.g. handled_without_human), read in
+ * the last month of the half-year that has data.
+ */
+export interface GateCheck {
+  processId: string;
+  metric: string;
+  op: "gte" | "lte";
+  target: number;
+}
+
 export interface Gate {
   id: string;
   period: HalfYear;
@@ -72,6 +85,7 @@ export interface Gate {
   status: GateStatus;
   decidedAt?: string;
   decidedBy?: string;
+  check?: GateCheck;
 }
 
 export interface Scenario {
@@ -159,7 +173,7 @@ export function suggestedDecision(s: FlowScores, isNew = false): FlowDecision {
 /* ---------- scenario results ---------- */
 
 /** Share of full run-rate reached at a point in time (months from plan start). */
-function rampAt(f: ScenarioFlow, goLiveMonth: number, month: number): number {
+export function rampAt(f: ScenarioFlow, goLiveMonth: number, month: number): number {
   if (month <= goLiveMonth) return 0;
   if (f.rampMonths <= 0) return 1;
   return Math.min(1, (month - goLiveMonth) / f.rampMonths);
@@ -266,6 +280,52 @@ export function computeScenario(plan: Pick<StrategyPlan, "startYear" | "years" |
     runRateByHalf,
     flowsLive: s.flows.filter((f) => monthOf(plan, f.goLive) < n * 12).length,
   };
+}
+
+/* ---------- one time model ---------- */
+
+/** Months from the plan start to the first day of a month written "YYYY-MM-01" (or "YYYY-MM"). */
+export function monthIndex(plan: Pick<StrategyPlan, "startYear">, period: string): number {
+  const [y, m] = period.split("-").map(Number);
+  return (y - plan.startYear) * 12 + (m - 1);
+}
+
+/**
+ * Planned value for one calendar month of a flow, following the scenario's go-live and ramp:
+ *   plan(month) = value per year / 12 × ramp share at mid-month
+ * `perYear` is what the plan is measured in: the scenario's run-rate, or a process's net value case.
+ */
+export function plannedForMonth(plan: Pick<StrategyPlan, "startYear">, f: Pick<ScenarioFlow, "goLive" | "rampMonths">, perYear: number, period: string): number {
+  return (perYear / 12) * rampAt(f as ScenarioFlow, monthOf(plan, f.goLive), monthIndex(plan, period) + 0.5);
+}
+
+/** The months ("YYYY-MM-01") of a half-year. */
+export function monthsOfHalf(half: HalfYear): string[] {
+  const [y, h] = half.split("-H").map(Number);
+  return Array.from({ length: 6 }, (_, i) => `${y}-${String((h === 2 ? 7 : 1) + i).padStart(2, "0")}-01`);
+}
+
+/** The chosen scenario's entry for a process, through the flow it is linked to. */
+export function scenarioFlowForProcess(plan: StrategyPlan, processId: string): { scenario: Scenario; flow: StrategyFlow; entry: ScenarioFlow } | null {
+  const scenario = plan.scenarios.find((s) => s.id === plan.chosenScenarioId);
+  const flow = plan.flows.find((f) => f.processId === processId);
+  if (!scenario || !flow) return null;
+  const entry = scenario.flows.find((f) => f.flowId === flow.id);
+  return entry ? { scenario, flow, entry } : null;
+}
+
+/**
+ * A process value case in the scenario's terms, so the two can be compared like for like.
+ * The scenario's run-rate is value before programme running costs, and the scenario lists
+ * running costs (AI usage, licences) as cost lines. So:
+ *   comparable run-rate = labour benefit − oversight
+ *   running costs       = AI cost + fixed cost   (belong in the scenario's running costs)
+ *   net                 = comparable run-rate − running costs  (= the value case's net)
+ */
+export function caseInScenarioTerms(vc: Pick<ValueCase, "labourBenefit" | "oversightCost" | "aiCost" | "fixedCost">): { runRate: number; runningCosts: number; net: number } {
+  const runRate = vc.labourBenefit - vc.oversightCost;
+  const runningCosts = vc.aiCost + vc.fixedCost;
+  return { runRate, runningCosts, net: runRate - runningCosts };
 }
 
 /** Short money format in millions: 1 250 000 → "1.3". */

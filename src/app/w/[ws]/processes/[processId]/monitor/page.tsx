@@ -5,6 +5,8 @@ import { use, useMemo } from "react";
 import { useProcess } from "@/lib/useProcess";
 import { computeValueCase, formatMSEK } from "@/domain/value-model";
 import { stepNeedsAttention, summariseActuals, STEP_ALERT } from "@/domain/actuals";
+import { measureBasis, type MeasureBasis } from "@/domain/progress";
+import { useStrategy } from "@/lib/strategy-store";
 import type { ProcessInstance } from "@/lib/api-types";
 import type { ValueCase } from "@/domain/types";
 import { LevelBadge, PageHead, TrafficLight } from "@/components/ui";
@@ -13,10 +15,13 @@ import { ActualsUpload } from "@/components/ActualsUpload";
 
 const monthLabel = (period: string) => new Date(period + "T00:00:00Z").toLocaleDateString("en-GB", { month: "short", year: "2-digit", timeZone: "UTC" });
 
-/** Cumulative plan vs actual chart. `actual` holds cumulative values for the first n months (null = no data that month). */
-function ValueChart({ plan, months, actual, labels }: { plan: number; months: number; actual: Array<number | null>; labels: string[] }) {
+/**
+ * Cumulative plan vs actual chart. `planCum[i]` is the cumulative plan after month i (planCum[0] = 0);
+ * `actual` holds cumulative values for the first n months (null = no data that month).
+ */
+function ValueChart({ planCum, months, actual, labels }: { planCum: number[]; months: number; actual: Array<number | null>; labels: string[] }) {
   const W = 640, H = 240, L = 48, R = 28, T = 14, B = 30;
-  const cumPlan = (i: number) => (plan * i) / 12;
+  const cumPlan = (i: number) => planCum[i] ?? 0;
   const known = actual.filter((v): v is number => v !== null);
   const maxV = Math.max(cumPlan(months), ...known, 0.1);
   const minV = Math.min(0, ...known);
@@ -56,16 +61,18 @@ function Legend() {
 const pctChange = (now: number, first: number) => (first ? Math.round(((now - first) / first) * 100) : 0);
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 
-function RealMonitor({ process, planCase, path }: { process: ProcessInstance; planCase: ValueCase; path: (p: string) => string }) {
-  const plan = process.baseline?.net ?? planCase.net;
-  const s = useMemo(() => summariseActuals(process.actuals, { net: plan, aiCost: planCase.aiCost, assumptions: process.baseline?.assumptions ?? process.assumptions }), [process, plan, planCase.aiCost]);
+function RealMonitor({ process, planCase, basis, path }: { process: ProcessInstance; planCase: ValueCase; basis: MeasureBasis; path: (p: string) => string }) {
+  const s = useMemo(() => summariseActuals(process.actuals, basis), [process, basis]);
   let cum = 0;
   const actual = s.months.map((m) => (m.realised === null ? null : (cum += m.realised)));
   const horizon = Math.max(12, s.months.length);
-  const labels = Array.from({ length: horizon }, (_, i) => {
+  const periods = Array.from({ length: horizon }, (_, i) => {
     const d = new Date(s.months[0].period + "T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() + i);
-    return monthLabel(d.toISOString().slice(0, 10));
+    return d.toISOString().slice(0, 10);
   });
+  const labels = periods.map(monthLabel);
+  const planCum = [0];
+  periods.forEach((p) => planCum.push(planCum.at(-1)! + basis.planFor(p)));
   const automated = planCase.steps.filter((st) => (process.design.levels[st.step.id] ?? 0) >= 3);
   const flagged = automated
     .map((st) => ({ st, stats: s.steps[st.step.id] }))
@@ -97,7 +104,7 @@ function RealMonitor({ process, planCase, path }: { process: ProcessInstance; pl
       <div className="mgrid">
         <section className="panel">
           <div className="panel-h"><h2>Cumulative value, MSEK</h2><Legend /></div>
-          <ValueChart plan={plan} months={horizon} actual={actual} labels={labels} />
+          <ValueChart planCum={planCum} months={horizon} actual={actual} labels={labels} />
         </section>
         <section className="panel">
           <div className="panel-h"><h2>Agents</h2><span className="muted" style={{ fontSize: 13 }}>Latest month</span></div>
@@ -151,7 +158,7 @@ function ExampleMonitor({ process, value, path }: { process: ProcessInstance; va
       <div className="mgrid">
         <section className="panel">
           <div className="panel-h"><h2>Cumulative value, MSEK</h2><Legend /></div>
-          <ValueChart plan={plan} months={12} actual={actual} labels={Array.from({ length: 12 }, (_, i) => `M${i + 1}`)} />
+          <ValueChart planCum={Array.from({ length: 13 }, (_, i) => (plan * i) / 12)} months={12} actual={actual} labels={Array.from({ length: 12 }, (_, i) => `M${i + 1}`)} />
         </section>
         <section className="panel">
           <div className="panel-h"><h2>Agents</h2><span className="muted" style={{ fontSize: 13 }}>Example</span></div>
@@ -178,12 +185,14 @@ function ExampleMonitor({ process, value, path }: { process: ProcessInstance; va
 export default function MonitorPage({ params }: { params: Promise<{ processId: string }> }) {
   const { processId } = use(params);
   const { process, value, loading, path, can } = useProcess(processId);
+  const { plan: strategy } = useStrategy();
+  const basis = useMemo(() => (process && process.steps.length ? measureBasis(process, strategy) : undefined), [process, strategy]);
   const planCase = useMemo(
     () => (process && process.steps.length ? computeValueCase(process.baseline?.steps ?? process.steps, process.baseline?.design ?? process.design, process.baseline?.assumptions ?? process.assumptions) : undefined),
     [process],
   );
   if (loading) return null;
-  if (!process || !value || !planCase) return <NotFound />;
+  if (!process || !value || !planCase || !basis) return <NotFound />;
   const hasActuals = process.actuals.length > 0;
 
   return (
@@ -191,7 +200,14 @@ export default function MonitorPage({ params }: { params: Promise<{ processId: s
       <PageHead dot="run" eyebrow={`Run · ${process.name}`} title="Monitor"
         sub="Value against the approved case, the process, and each agent. Gaps trace back to a step you can redesign."
         right={<span className="example">{process.baseline ? "Measured against approved baseline" : "No baseline approved: using current case"}{hasActuals ? "" : " · example figures"}</span>} />
-      {hasActuals ? <RealMonitor process={process} planCase={planCase} path={path} /> : <ExampleMonitor process={process} value={value} path={path} />}
+      {hasActuals && (
+        <p className="muted" style={{ fontSize: 13, margin: 0 }}>
+          {basis.entry
+            ? <>Plan follows the chosen scenario, <b>{basis.scenarioName}</b>: go-live {basis.entry.goLive.replace("-", " ")}, full value after {basis.entry.rampMonths} months. Same net value per year as the value case.</>
+            : <>Plan is the value case spread evenly over the year. Link this process to a flow in the chosen scenario to follow its go-live and ramp.</>}
+        </p>
+      )}
+      {hasActuals ? <RealMonitor process={process} planCase={planCase} basis={basis} path={path} /> : <ExampleMonitor process={process} value={value} path={path} />}
       {can("actuals.import") && <ActualsUpload processId={process.id} hasData={hasActuals} />}
     </>
   );

@@ -87,7 +87,7 @@ Land with advisory, expand with licences, retain with managed services.
 - [x] Scenarios: cost (cash and own staff time) and net value per year, payback, value after the plan; example company in SEK
 - [x] Roadmap: net run-rate per half-year with gates decided in the room
 - [x] Ambition: five AI-native measures per year, set together in the room, with decisions recorded
-- [ ] Gates checked automatically against uploaded actuals
+- [x] Gates checked against uploaded actuals (suggested met or missed; the room decides)
 - [ ] Scenario comparison export for the board
 
 ### Phase 2: close the loop (3–6 months after MVP)

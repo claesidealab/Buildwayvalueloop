@@ -127,6 +127,19 @@ describe("actuals", () => {
     expect((await cs()).actuals.find((a) => a.metric === "success_rate")?.value).toBe(70);
   });
 
+  it("derives stage and light from uploaded figures, against the chosen scenario's ramp", async () => {
+    // Base scenario: customer service goes live 2027-H2 with a 12-month ramp, so the plan for
+    // the first month is small and a strong first month reads as green.
+    await importActuals(db, WS, "customer-service", [{ period: "2027-07-01", metric: "hours_released", step: null, value: 2000 }], advisor);
+    const { getStrategy } = await import("./strategy-repo");
+    await getStrategy(db, WS);
+    const p = await cs();
+    expect(p.stage).toBe("run");
+    expect(p.gate).toBe("green");
+    await importActuals(db, WS, "customer-service", [{ period: "2027-07-01", metric: "hours_released", step: null, value: 1 }], advisor);
+    expect((await cs()).gate).toBe("red");
+  });
+
   it("rejects unknown steps and clears uploaded data", async () => {
     await expect(importActuals(db, WS, "customer-service", [{ period: "2026-01-01", metric: "success_rate", step: "nope", value: 1 }], advisor)).rejects.toBeInstanceOf(NotFoundError);
     await importActuals(db, WS, "customer-service", jan, advisor);

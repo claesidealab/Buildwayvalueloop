@@ -25,6 +25,7 @@ const scenarioSchema = z.object({
   gates: z.array(z.object({
     id, period: half, criterion: text(400), status: z.enum(["open", "met", "missed"]),
     decidedAt: z.string().max(40).optional(), decidedBy: text(120).optional(),
+    check: z.object({ processId: z.string().min(1).max(64), metric: z.string().min(1).max(40), op: z.enum(["gte", "lte"]), target: z.number().min(-1e12).max(1e12) }).strict().optional(),
   }).strict()).max(20),
 }).strict();
 

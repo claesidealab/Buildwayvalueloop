@@ -57,8 +57,12 @@ Actuals (`src/domain/actuals.ts`, covered by `actuals.test.ts`):
 realised value / month = hours_released × cost per hour × (1 − oversight share)
                          − AI cost (ai_cost_sek if uploaded, else plan AI cost / 12)
                          − fixed cost / 12
-plan / month           = baseline net (or current case) / 12
+plan / month           = baseline net (or current case) / 12, or, when the process is linked to a
+                         flow in the chosen scenario: net / 12 × the scenario's ramp share at mid-month
+                         (one time model, src/domain/progress.ts measureBasis)
 realised share         = Σ realised ÷ Σ plan, over months with hours_released
+stage                  = furthest of stored stage, find (steps), build (baseline), run (actuals)
+light                  = with actuals: green ≥ 90% realised share, amber ≥ 70%, red below
 step alert             = agent success < 80% or escalation > 15% in the latest month
 ```
 
@@ -77,6 +81,18 @@ value after the plan    = run-rate at the end of the last year − that year's r
 payback year            = first year cumulative net ≥ 0; if after the plan, projected with value after the plan
 flow priority (0–100)   = value 35/20/5 + evidence 25/15/5 + waiting 25/15/5 + volume 15/10/3
 suggested decision      = redesign if priority ≥ 70 and waiting and evidence aren't low; improve if ≥ 45; else leave; new flows: build
+plan for a month        = value per year / 12 × ramp share at mid-month   (plannedForMonth)
+value case in scenario terms (like-for-like bottom-up check):
+  comparable run-rate   = labour benefit − oversight
+  running costs         = AI cost + fixed cost   (go in the scenario's running cost lines, not the flow's value)
+```
+
+Gate checks (`src/domain/gates.ts`, covered by `gates.test.ts`):
+
+```
+value_vs_plan = Σ realised ÷ Σ planned over the half-year's months with hours_released (plan follows the ramp)
+other metrics = the process metric's value in the last month of the half-year that has it
+suggestion    = met if measured passes the target (≥ or ≤), missed if not, no-data without uploads
 ```
 
 Agent fit (`src/domain/fit.ts`) scores 0–100 from four ratings (volume, rule-based, data ready, error risk) and suggests a level. High error risk caps the suggestion at L2.
@@ -159,7 +175,9 @@ The client store (`src/lib/store.tsx`) applies changes optimistically, sends sli
 - Decisions are append-only: they are added through their own endpoint, stamped with server time and the signed-in person, and ignored on plan saves.
 - Example workspaces start from `src/templates/strategy-example.ts`, a made-up company with four scenarios in SEK; other workspaces start empty.
 - AI discovery (`src/server/discovery.ts`) calls Claude (`claude-opus-5-5`, structured output, server-side fallback on refusal) with the material people paste. It needs `ANTHROPIC_API_KEY`; without it the endpoint answers 503 and the screen says how to turn it on. Suggestions are shown for review and saved only when someone adds them.
-- Bottom-up check: a scenario flow linked to a process shows that process's own value case beside the top-down estimate.
+- Bottom-up check: a scenario flow linked to a process shows that process's value case beside the top-down estimate, on the same basis (before running costs), with a button to use it in the scenario.
+- Gates can carry a measure (a linked process, a metric, a target). The scenario page checks it against uploaded actuals and suggests met or missed; the room still decides.
+- The strategy plan is loaded for the whole workspace, so monitoring and the overview measure against the chosen scenario's timing.
 
 ## Current gaps
 
@@ -168,4 +186,3 @@ The client store (`src/lib/store.tsx`) applies changes optimistically, sends sli
 - Postgres row-level security as a second line of defence is not switched on yet; isolation relies on the repository's workspace filters, covered by tests.
 - No rate limiting on sign-in routes yet; add at the hosting layer.
 - AI discovery has been tested with a stand-in for Claude, not yet against the live API.
-- Gate status is set by hand in the room; checking gates automatically against uploaded actuals comes next.

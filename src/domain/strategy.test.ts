@@ -99,3 +99,46 @@ describe("example plan", () => {
     for (const s of p.scenarios) for (const sf of s.flows) expect(ids.has(sf.flowId)).toBe(true);
   });
 });
+
+import { caseInScenarioTerms, monthIndex, monthsOfHalf, plannedForMonth, scenarioFlowForProcess } from "./strategy";
+
+describe("one time model", () => {
+  it("counts months from the plan start", () => {
+    expect(monthIndex(plan, "2027-01-01")).toBe(0);
+    expect(monthIndex(plan, "2028-07-01")).toBe(18);
+  });
+
+  it("lists the months of a half-year", () => {
+    expect(monthsOfHalf("2027-H2")).toEqual(["2027-07-01", "2027-08-01", "2027-09-01", "2027-10-01", "2027-11-01", "2027-12-01"]);
+  });
+
+  it("plans nothing before go-live and follows the ramp after it", () => {
+    const f = { goLive: "2027-H2" as const, rampMonths: 12 };
+    expect(plannedForMonth(plan, f, 12 * M, "2027-06-01")).toBe(0);
+    // July is month 6; at mid-month the ramp is 0.5 / 12.
+    expect(plannedForMonth(plan, f, 12 * M, "2027-07-01")).toBeCloseTo(M * (0.5 / 12), 6);
+    expect(plannedForMonth(plan, f, 12 * M, "2028-12-01")).toBeCloseTo(M, 6);
+  });
+
+  it("plans the full monthly value from go-live without a ramp", () => {
+    expect(plannedForMonth(plan, { goLive: "2027-H1", rampMonths: 0 }, 12 * M, "2027-01-01")).toBe(M);
+  });
+
+  it("finds the chosen scenario's entry for a linked process", () => {
+    const p = examplePlan();
+    const hit = scenarioFlowForProcess(p, "customer-service");
+    expect(hit?.scenario.id).toBe(p.chosenScenarioId);
+    expect(hit?.flow.id).toBe("request-to-resolution");
+    expect(scenarioFlowForProcess(p, "nothing")).toBeNull();
+    expect(scenarioFlowForProcess({ ...p, chosenScenarioId: null }, "customer-service")).toBeNull();
+  });
+});
+
+describe("caseInScenarioTerms", () => {
+  it("compares the value case before running costs, which the scenario counts as costs", () => {
+    const r = caseInScenarioTerms({ labourBenefit: 10 * M, oversightCost: 1.5 * M, aiCost: 0.5 * M, fixedCost: 0.3 * M });
+    expect(r.runRate).toBe(8.5 * M);
+    expect(r.runningCosts).toBe(0.8 * M);
+    expect(r.net).toBeCloseTo(7.7 * M, 6);
+  });
+});
