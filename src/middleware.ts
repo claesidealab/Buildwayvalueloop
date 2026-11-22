@@ -11,8 +11,12 @@ export function middleware(req: NextRequest) {
 
   if (pathname.startsWith("/api/")) {
     if (req.method !== "GET" && req.method !== "HEAD") {
+      // Compare with the host the browser used: behind a proxy (Netlify), nextUrl can carry an internal host.
       const origin = req.headers.get("origin");
-      if (origin && origin !== req.nextUrl.origin) {
+      const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? req.nextUrl.host;
+      let sameSite = false;
+      try { sameSite = !!origin && new URL(origin).host === host; } catch { sameSite = false; }
+      if (origin && !sameSite && origin !== req.nextUrl.origin) {
         return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 });
       }
     }

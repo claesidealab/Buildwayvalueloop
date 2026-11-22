@@ -29,7 +29,11 @@ export default function LoginPage() {
     setBusy(email);
     const res = await fetch("/api/auth/dev-login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
     if (res.ok) window.location.href = "/";
-    else { setBusy(null); setError("Developer sign-in failed."); }
+    else {
+      setBusy(null);
+      const msg = await res.json().then((b: { error?: string }) => b.error).catch(() => undefined);
+      setError(`Developer sign-in failed${msg ? `: ${msg}` : ""}. Open /api/health on this site to see whether the database is reachable.`);
+    }
   };
 
   const roleLabel = (r: Role) => ROLES.find((x) => x.role === r)?.label ?? r;
