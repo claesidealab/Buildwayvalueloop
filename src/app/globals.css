@@ -523,3 +523,91 @@ code { font-size: 0.92em; background: var(--surface2); padding: 1px 6px; border-
 /* simulation */
 .sim-range { margin-top: 16px; display: flex; flex-direction: column; gap: 4px; }
 .big-sm { font: 800 36px/1 var(--display); letter-spacing: -0.02em; }
+
+/* ==========================================================================
+   Platform pitch look: dark green frame, white cards with clear borders,
+   lighter display weight, coral highlights. Mirrors the Value Loop pitch deck.
+   ========================================================================== */
+:root {
+  --frame: #18302B; --frame2: #1F3F37; --frame-line: #2E5048; --frame-text: #F4F1E8; --frame-muted: #C9D3CC;
+  --card: #FBFAF5; --card-line: #D8D2C2; --soft-coral: #F6D5CB; --mid-coral: #F2AE8E; --good: #DCE3DE; --poor: #EFE2C4;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --card: #172623; --card-line: #2E413C; --soft-coral: #4A2E27; --mid-coral: #6B3A2E; --good: #23392F; --poor: #3D3624; } }
+:root[data-theme="dark"] { --card: #172623; --card-line: #2E413C; --soft-coral: #4A2E27; --mid-coral: #6B3A2E; --good: #23392F; --poor: #3D3624; }
+
+/* the frame: a dark rail, like the deck's dark slides */
+.rail { background: var(--frame); color: var(--frame-text); border-right: 0; }
+.rail .logo { color: var(--frame-text); }
+.rail .prod, .rail .nav-h, .rail .rail-foot, .rail .linkbtn, .rail .ws small { color: var(--frame-muted); }
+.rail .nav-h { color: var(--coral); }
+.rail .ws { background: var(--frame2); border: 2px solid var(--frame-line); color: var(--frame-text); }
+.rail .ws-select { background: var(--frame2); color: var(--frame-text); border-color: var(--frame-line); }
+.rail .nav a { color: var(--frame-text); }
+.rail .nav a:hover { background: var(--frame2); }
+.rail .nav a[aria-current="page"] { background: var(--coral); color: #18302B; font-weight: 600; }
+.rail .d-run { background: var(--frame-muted); }
+.rail .nav a[aria-current="page"] .d-run { background: #18302B; }
+.rail .nav a[aria-current="page"] .d-build { background: #18302B; }
+.rail .role .dot { background: var(--coral); }
+
+/* headings: the deck's lighter display weight */
+.ph h1 { font-weight: 600; letter-spacing: -0.025em; font-size: clamp(32px, 4.2vw, 48px); }
+.panel-h h2, .route h3 { font-weight: 600; }
+.tile .v { font-weight: 600; }
+.eyebrow { letter-spacing: .16em; }
+
+/* cards: white with a clear border */
+.panel, .tile, .tcard, .sc, .flow, .suggestion { background: var(--card); border: 2px solid var(--card-line); }
+.panel { border-radius: 20px; padding: 22px; }
+.tile { border-radius: 18px; padding: 18px 20px; }
+.tile.on, .tcard[aria-pressed="true"], .sc[aria-pressed="true"] { border: 3px solid var(--coral); }
+.tcard[aria-pressed="true"], .sc[aria-pressed="true"] { padding: 17px; }
+.btn { border-width: 2px; }
+.btn-pri { border-color: var(--ink); }
+
+/* the loop banner on the overview */
+.hero { background: var(--frame); color: var(--frame-text); border-radius: 24px; padding: 32px 36px; display: flex; flex-direction: column; gap: 18px; }
+.hero .eyebrow { color: var(--coral); }
+.hero h1 { font-size: clamp(30px, 4vw, 46px); font-weight: 600; line-height: 1.06; letter-spacing: -0.025em; }
+.hero p.sub { color: var(--frame-muted); font-size: 17px; max-width: 64ch; }
+.hero .example { color: var(--frame-muted); border-color: var(--frame-line); }
+.loopchips { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.loopchip { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; padding: 7px 14px; border-radius: 999px; background: var(--frame2); border: 2px solid var(--frame-line); color: var(--frame-text); text-decoration: none; }
+.loopchip:hover { border-color: var(--coral); }
+.loopchip.on { background: var(--coral); border-color: var(--coral); color: #18302B; }
+.looparrow { color: var(--frame-muted); }
+.loopchip b { font: 600 12px/1 var(--text); letter-spacing: .1em; opacity: .8; }
+
+/* the "gap traced" callout: a dark bar with a coral lead */
+.gap { background: var(--frame); border: 0; color: var(--frame-text); }
+.gap b { color: var(--coral); }
+.gap .btn-pri { background: var(--coral); color: #18302B; border-color: var(--coral); }
+.gap.gap-ok { background: var(--card); color: var(--ink); border: 2px solid var(--card-line); }
+.gap.gap-ok b { color: var(--ink); }
+
+/* autonomy as a staircase, L0 → L4 */
+.levels button { border: 2px solid transparent; }
+.levels button:nth-child(1) { background: var(--card); border-color: var(--card-line); }
+.levels button:nth-child(2) { background: var(--surface2); }
+.levels button:nth-child(3) { background: var(--soft-coral); }
+.levels button:nth-child(4) { background: var(--mid-coral); }
+.levels button:nth-child(5) { background: var(--coral); color: #18302B; }
+.levels button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* agent fit as a heatmap */
+.f { border-radius: 8px; min-width: 84px; padding: 5px 8px; }
+.f-good { background: var(--good); }
+.f-mid { background: var(--surface2); }
+.f-poor { background: var(--poor); }
+.fitcell { display: inline-block; min-width: 56px; text-align: center; padding: 5px 10px; border-radius: 8px; font: 600 15px/1.2 var(--display); }
+.fit-hi { background: var(--coral); color: #18302B; }
+.fit-md { background: var(--soft-coral); color: var(--ink); }
+.fit-lo { background: var(--surface2); color: var(--ink); }
+.sug { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 8px; background: var(--card); border-left: 6px solid var(--muted); font-size: 13px; font-weight: 600; }
+.sug-agent { border-left-color: var(--coral); }
+.sug-human { border-left-color: var(--human); }
+.sug-system { border-left-color: var(--sage); }
+@media (max-width: 820px) {
+  .hero { padding: 22px 20px; border-radius: 18px; }
+  .rail .nav a[aria-current="page"] { border-radius: 10px; }
+}

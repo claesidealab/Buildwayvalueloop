@@ -84,7 +84,7 @@ function RealMonitor({ process, planCase, basis, path }: { process: ProcessInsta
   return (
     <>
       <div className="tiles">
-        <div className="tile"><span className="label">Value realised vs plan</span><span className="v num">{share === null ? "—" : `${Math.round(share * 100)}%`}</span><small className="num">{share === null ? "Upload hours_released to see this" : `${formatMSEK(s.realisedToDate)} of ${formatMSEK(s.planToDate)} MSEK to date`}</small></div>
+        <div className="tile on"><span className="label">Value realised vs plan</span><span className="v num">{share === null ? "—" : `${Math.round(share * 100)}%`}</span><small className="num">{share === null ? "Upload hours_released to see this" : `${formatMSEK(s.realisedToDate)} of ${formatMSEK(s.planToDate)} MSEK to date`}</small></div>
         <div className="tile"><span className="label">Resolved without a human</span><span className="v num">{L.handled_without_human ? `${Math.round(L.handled_without_human.value)}%` : "—"}</span><small>{L.handled_without_human ? `${monthLabel(L.handled_without_human.period)} · first month ${Math.round(L.handled_without_human.first)}%` : "Not uploaded"}</small></div>
         <div className="tile"><span className="label">Cost per case</span><span className="v num">{L.cost_per_case ? `${Math.round(L.cost_per_case.value)} kr` : "—"}</span><small>{L.cost_per_case ? `${signed(pctChange(L.cost_per_case.value, L.cost_per_case.first))}% since first month` : "Not uploaded"}</small></div>
         <div className="tile"><span className="label">CSAT</span><span className="v num">{L.csat ? L.csat.value.toFixed(1) : "—"}</span><small>{L.csat ? `First month ${L.csat.first.toFixed(1)}` : "Not uploaded"}</small></div>
@@ -145,7 +145,7 @@ function ExampleMonitor({ process, value, path }: { process: ProcessInstance; va
     <>
       <p className="readonly">These are <b>example figures</b> to show how monitoring works. Upload your actual figures below to replace them.</p>
       <div className="tiles">
-        <div className="tile"><span className="label">Value realised vs plan</span><span className="v num">{Math.round((last / ((plan * month) / 12)) * 100)}%</span><small className="num">{formatMSEK(last)} of {formatMSEK((plan * month) / 12)} MSEK · example</small></div>
+        <div className="tile on"><span className="label">Value realised vs plan</span><span className="v num">{Math.round((last / ((plan * month) / 12)) * 100)}%</span><small className="num">{formatMSEK(last)} of {formatMSEK((plan * month) / 12)} MSEK · example</small></div>
         <div className="tile"><span className="label">Resolved without a human</span><span className="v num">58%</span><small>Example</small></div>
         <div className="tile"><span className="label">Cost per case</span><span className="v num">−31%</span><small>Example</small></div>
         <div className="tile"><span className="label">CSAT</span><span className="v num">4.4</span><small>Example</small></div>
