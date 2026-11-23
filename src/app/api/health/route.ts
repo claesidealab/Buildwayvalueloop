@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { app } from "@/server/http";
-import { devLoginEnabled } from "@/server/auth-config";
+import { devLoginState } from "@/server/auth-config";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +23,7 @@ export async function GET() {
   const hasDb = !!process.env.DATABASE_URL;
   const out: Record<string, unknown> = {
     database: hasDb ? "DATABASE_URL is set" : "DATABASE_URL is NOT set for this deploy",
-    developerSignIn: devLoginEnabled() ? "on" : "off",
+    developerSignIn: (() => { const d = devLoginState(); return !d.enabled ? "off" : d.blocked ? "on, but blocked: AUTH_DEV_PASSWORD is not set" : d.needsPassword ? "on, password required" : "on, no password"; })(),
     aiFeatures: process.env.ANTHROPIC_API_KEY ? "on" : "off (no ANTHROPIC_API_KEY)",
   };
   try {

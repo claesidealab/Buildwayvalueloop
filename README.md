@@ -39,7 +39,7 @@ To use a real Postgres, copy `.env.example` to `.env.local` and set `DATABASE_UR
 
 ### Signing in
 
-In development (`npm run dev`) the login page offers a **developer sign-in** with four example people, one per role. It is off in production unless `AUTH_DEV_LOGIN=true`.
+In development (`npm run dev`) the login page offers a **developer sign-in** with four example people, one per role. It is off in production unless `AUTH_DEV_LOGIN=true`, and then it also needs the access password in `AUTH_DEV_PASSWORD`.
 
 For real sign-in, register the app with Microsoft and/or Google and set the keys in `.env.local` (see `.env.example`). The redirect URI to register is `<AUTH_URL>/api/auth/callback/microsoft-entra-id` or `<AUTH_URL>/api/auth/callback/google`.
 

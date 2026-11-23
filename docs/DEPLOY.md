@@ -30,6 +30,7 @@ Supabase is plain Postgres and works the same way:
    |---|---|
    | `DATABASE_URL` | the Neon pooled connection string |
    | `AUTH_DEV_LOGIN` | `true` for review only (see below) |
+   | `AUTH_DEV_PASSWORD` | a password of your choice; required with `AUTH_DEV_LOGIN` on a hosted site |
    | `BUILDWAY_EMAIL_DOMAINS` | `buildway.se` |
    | `ANTHROPIC_API_KEY` | optional: turns on AI-assisted flow discovery |
 
@@ -48,7 +49,7 @@ To keep the review site private on Netlify, use **Project configuration → Acce
 
 ## Who can open it
 
-`AUTH_DEV_LOGIN=true` shows the one-click example users on the login page, so anyone who has the link can get in as them. Only the example workspace exists, so that's fine for a review, but keep the link private, and turn on **Settings → Deployment Protection → Vercel Authentication** so only people in your Vercel team can open the site at all.
+`AUTH_DEV_LOGIN=true` shows the example users on the login page. On a hosted site they also need the access password in `AUTH_DEV_PASSWORD`: without it, developer sign-in is refused. Share the password only with the people who should test. Only the example workspace exists, so that's fine for a review, but keep the link private, and turn on **Settings → Deployment Protection → Vercel Authentication** so only people in your Vercel team can open the site at all.
 
 Before real customer data goes in:
 

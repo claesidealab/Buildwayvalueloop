@@ -5,7 +5,12 @@ import { Logo } from "@/components/Logo";
 import { ROLES } from "@/domain/permissions";
 import type { Role } from "@/domain/types";
 
-type Providers = { providers: Array<{ id: string; name: string }>; devLogin: Array<{ email: string; name: string; role: Role }> | null };
+type Providers = {
+  providers: Array<{ id: string; name: string }>;
+  devLogin: Array<{ email: string; name: string; role: Role }> | null;
+  devLoginNeedsPassword?: boolean;
+  devLoginBlocked?: string | null;
+};
 
 const ERRORS: Record<string, string> = {
   provider: "That sign-in option isn't set up.",
@@ -18,6 +23,7 @@ export default function LoginPage() {
   const [opts, setOpts] = useState<Providers | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
 
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get("error");
@@ -27,12 +33,12 @@ export default function LoginPage() {
 
   const devSignIn = async (email: string) => {
     setBusy(email);
-    const res = await fetch("/api/auth/dev-login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
+    const res = await fetch("/api/auth/dev-login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, ...(opts?.devLoginNeedsPassword ? { password } : {}) }) });
     if (res.ok) window.location.href = "/";
     else {
       setBusy(null);
       const msg = await res.json().then((b: { error?: string }) => b.error).catch(() => undefined);
-      setError(`Developer sign-in failed${msg ? `: ${msg}` : ""}. Open /api/health on this site to see whether the database is reachable.`);
+      setError(res.status === 401 ? "Wrong password. Check it and try again." : `Developer sign-in failed${msg ? `: ${msg}` : ""}. Open /api/health on this site to see whether the database is reachable.`);
     }
   };
 
@@ -59,13 +65,23 @@ export default function LoginPage() {
         {opts?.devLogin && (
           <section className="dev-login">
             <p className="label">Developer sign-in</p>
-            <p className="muted" style={{ fontSize: 13 }}>For trying the roles with example people. Turned off in production.</p>
+            <p className="muted" style={{ fontSize: 13 }}>For trying the roles with example people.{opts.devLoginNeedsPassword ? " Enter the access password, then choose who to sign in as." : ""}</p>
+            {opts.devLoginBlocked ? <p className="banner" role="status">{opts.devLoginBlocked}</p> : (
+              <>
+                {opts.devLoginNeedsPassword && (
+                  <label className="field" htmlFor="dev-password">
+                    <span>Access password</span>
+                    <input id="dev-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                  </label>
+                )}
             {opts.devLogin.map((u) => (
-              <button key={u.email} className="dev-user" onClick={() => devSignIn(u.email)} disabled={!!busy}>
+              <button key={u.email} className="dev-user" onClick={() => devSignIn(u.email)} disabled={!!busy || (!!opts.devLoginNeedsPassword && !password)}>
                 <b>{u.name}</b>
                 <span className="muted">{roleLabel(u.role)} · {u.email}</span>
               </button>
             ))}
+              </>
+            )}
           </section>
         )}
       </div>

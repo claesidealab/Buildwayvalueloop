@@ -6,7 +6,9 @@
  *   AUTH_URL                 public base URL, e.g. https://loop.buildway.se (redirect URIs: <AUTH_URL>/api/auth/callback/<provider>)
  *   BUILDWAY_EMAIL_DOMAINS   comma-separated; people signing in with these domains are Buildway staff (default buildway.se)
  *   AUTH_DEV_LOGIN           "true" turns on the developer sign-in; it is on by default outside production
+ *   AUTH_DEV_PASSWORD        password for the developer sign-in; required in production, optional in development
  */
+import { createHash, timingSafeEqual } from "node:crypto";
 import { Google, MicrosoftEntraId } from "arctic";
 
 export type ProviderId = "microsoft-entra-id" | "google";
@@ -41,6 +43,28 @@ export function devLoginEnabled(): boolean {
   const v = env("AUTH_DEV_LOGIN");
   if (v) return v === "true";
   return process.env.NODE_ENV !== "production";
+}
+
+/**
+ * Whether developer sign-in needs a password, and whether it can be used at all.
+ * In production it is refused unless AUTH_DEV_PASSWORD is set, so a public site is never open.
+ */
+export function devLoginState(): { enabled: boolean; needsPassword: boolean; blocked: string | null } {
+  if (!devLoginEnabled()) return { enabled: false, needsPassword: false, blocked: null };
+  const pw = env("AUTH_DEV_PASSWORD");
+  const prod = process.env.NODE_ENV === "production";
+  if (prod && !pw) return { enabled: true, needsPassword: true, blocked: "Developer sign-in needs a password on this site. Add AUTH_DEV_PASSWORD to the site's environment variables and redeploy." };
+  return { enabled: true, needsPassword: !!pw, blocked: null };
+}
+
+const digest = (v: string) => createHash("sha256").update(v, "utf8").digest();
+
+/** Checks a developer sign-in password in constant time. */
+export function devPasswordOk(given: string | undefined): boolean {
+  const state = devLoginState();
+  if (!state.enabled || state.blocked) return false;
+  if (!state.needsPassword) return true;
+  return timingSafeEqual(digest(given ?? ""), digest(env("AUTH_DEV_PASSWORD")!));
 }
 
 export function buildwayDomains(): string[] {
